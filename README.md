@@ -125,6 +125,10 @@ WyzeCamV3の画面
 
   - WebRTC配信に対応します。（LAN内のみ）
 
+- ONVIF PTZ対応(port:8000、ATOMSwingのみ)
+
+  - FrigateなどのNVRからパン/チルトの操作や自動追尾ができます。（LAN内のみ、認証なし）
+
 - モバイルアプリの設定（全てではない）に対応しました。
 
   - GUIが複雑になるものは対応していません。
@@ -637,6 +641,16 @@ RTMPの配信が１日程度で停止することがあります。
 WebRTCのOn/Offを設定します。
 
 URLをコピーしてブラウザで開くか、Linkボタンで開くことができます。
+
+#### ONVIF（ATOMSwingのみ）
+
+ONVIF PTZサービスのOn/Offを設定します。初期値はOffです。
+
+Onにするとport 8000でONVIFのDevice/Media/PTZサービスが起動し、FrigateなどのNVRからパン/チルト、プリセット、`TranslationSpaceFov`による自動追尾ができます。ズーム、ONVIFのホームポジション、認証(WS-Security)には対応していません。**認証がないため、信頼できるLAN内でのみ使用してください。**
+
+Max speedでONVIF経由の移動速度の上限(1:低速 - 9:高速)を設定できます。プリセットは`/media/mmc/onvif_presets.json`に保存されます。
+
+hack.iniでは`ONVIF_ENABLE=on`、`ONVIF_PORT=8000`、`ONVIF_MAX_SPEED=9`で設定します。
 
 <br>
 

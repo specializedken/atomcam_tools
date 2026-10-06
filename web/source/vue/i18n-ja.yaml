@@ -301,6 +301,13 @@ WebRTC:
     comment: |
       音声を出すにはRTSP Mainの音声をOPUSに設定してください。
 
+ONVIF:
+  title: ONVIF
+  tooltip: NVR(Frigateなど)からカメラを操作するためのONVIF PTZサービス(ポート8000)です。認証はありません。信頼できるLANでのみ使用してください。
+  maxSpeed:
+    title: 最大速度
+    tooltip: ONVIF経由のパン/チルト速度の上限です(1:低速 - 9:高速)。
+
 event:
   tab: イベント通知
   webhook:

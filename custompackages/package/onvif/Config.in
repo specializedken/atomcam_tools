@@ -1,0 +1,6 @@
+config BR2_PACKAGE_ONVIF
+	bool "onvif"
+	help
+	  Minimal ONVIF Device/Media/PTZ service for AtomSwing cams.
+	  Translates ONVIF SOAP into the atomcam_tools motor command socket.
+	  Started only when ONVIF_ENABLE=on in hack.ini.

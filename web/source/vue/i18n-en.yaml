@@ -300,6 +300,13 @@ WebRTC:
     comment: |
       To output audio, the RTSP Main audio must be set to OPUS.
 
+ONVIF:
+  title: ONVIF
+  tooltip: ONVIF PTZ service (port 8000) so that NVRs such as Frigate can control the camera. There is no authentication; use it only on a trusted LAN.
+  maxSpeed:
+    title: Max speed
+    tooltip: Limits the pan/tilt speed requested through ONVIF (1 slow - 9 fast).
+
 event:
   tab: Notification
   title: WebHook

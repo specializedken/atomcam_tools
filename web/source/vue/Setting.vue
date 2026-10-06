@@ -281,6 +281,12 @@
               <a :href="WebRTCUrl" target="_blank" class="el-button el-button--primary el-button--mini link-button">Link</a>
             </SettingInput>
           </div>
+
+          <div v-if="isSwing">
+            <h3 v-t="'ONVIF.title'" />
+            <SettingSwitch i18n="ONVIF" v-model="config.ONVIF_ENABLE" />
+            <SettingInputNumber v-if="config.ONVIF_ENABLE === 'on'" i18n="ONVIF.maxSpeed" :titleOffset="2" :span="3" v-model="config.ONVIF_MAX_SPEED" :min="1" :max="9" />
+          </div>
         </ElTabPane>
 
         <!-- Event Webhook Tab -->
@@ -461,6 +467,8 @@
           RTMP_URL: '',
           RTMP_RESTART: -60,
           WEBRTC_ENABLE: 'off',
+          ONVIF_ENABLE: 'off',
+          ONVIF_MAX_SPEED: 9,
           PERIODICREC_SDCARD: 'on',
           PERIODICREC_SDCARD_REMOVE: 'off',
           PERIODICREC_SDCARD_REMOVE_DAYS: 30,
@@ -1436,6 +1444,9 @@
           }
         }
         this.RTSPRestart = false;
+        if((this.config.ONVIF_ENABLE !== this.oldConfig.ONVIF_ENABLE) || (this.config.ONVIF_MAX_SPEED !== this.oldConfig.ONVIF_MAX_SPEED)) {
+          execCmds.push('onvif restart');
+        }
         if(Object.keys(this.config).some(prop => (prop.search(/WEBHOOK/) === 0) && (this.config[prop] !== this.oldConfig[prop]))) {
           execCmds.push('setwebhook');
         }
