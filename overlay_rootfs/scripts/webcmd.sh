@@ -112,6 +112,14 @@ do
     echo "$cmd $params OK" >> /var/run/webres
     cmd=""
   fi
+  if [ "$cmd" = "onvifhome" ]; then
+    # save the current position as ONVIF preset "home" (token 1) through the daemon itself
+    port=$(awk -F "=" '/^ONVIF_PORT *=/ {print $2}' /tmp/hack.ini)
+    case "$port" in ''|*[!0-9]*) port=8000 ;; esac
+    curl -s -m 5 -o /dev/null -H 'Content-Type: application/soap+xml' -d '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tptz="http://www.onvif.org/ver20/ptz/wsdl"><s:Body><tptz:SetPreset><tptz:ProfileToken>profile1</tptz:ProfileToken><tptz:PresetToken>1</tptz:PresetToken><tptz:PresetName>home</tptz:PresetName></tptz:SetPreset></s:Body></s:Envelope>' "http://127.0.0.1:$port/onvif/ptz_service"
+    echo "$cmd $params OK" >> /var/run/webres
+    cmd=""
+  fi
   if [ "$cmd" = "cruise" ]; then
     kill -9 `pidof cruise.sh`
     /scripts/cruise.sh &

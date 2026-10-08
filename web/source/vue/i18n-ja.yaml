@@ -307,6 +307,12 @@ ONVIF:
   maxSpeed:
     title: 最大速度
     tooltip: ONVIF経由のパン/チルト速度の上限です(1:低速 - 9:高速)。
+  saveHome:
+    title: ホーム位置を保存
+    tooltip: 現在のパン/チルト位置をONVIFプリセット"home"(トークン1)として保存します。FrigateなどのNVRが戻り位置として使います。先にカメラを目的の位置に動かしてください。
+    button: 保存
+  note:
+    comment: 先にカメラを戻したい位置へ動かしてから保存を押してください。現在位置がONVIFプリセット"home"として保存され、FrigateなどのNVRが戻り位置として使います。
 
 event:
   tab: イベント通知

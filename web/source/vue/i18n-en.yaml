@@ -306,6 +306,12 @@ ONVIF:
   maxSpeed:
     title: Max speed
     tooltip: Limits the pan/tilt speed requested through ONVIF (1 slow - 9 fast).
+  saveHome:
+    title: Save home position
+    tooltip: Saves the current pan/tilt as the ONVIF preset "home" (token 1), which NVRs such as Frigate use as the return position. Move the camera to where you want it first.
+    button: Save
+  note:
+    comment: Move the camera to the spot you want first, then press Save. The current position is stored as the ONVIF preset "home", which Frigate and other NVRs use as the position to return to.
 
 event:
   tab: Notification

@@ -286,6 +286,8 @@
             <h3 v-t="'ONVIF.title'" />
             <SettingSwitch i18n="ONVIF" v-model="config.ONVIF_ENABLE" />
             <SettingInputNumber v-if="config.ONVIF_ENABLE === 'on'" i18n="ONVIF.maxSpeed" :titleOffset="2" :span="3" v-model="config.ONVIF_MAX_SPEED" :min="1" :max="9" />
+            <SettingButton v-if="oldConfig.ONVIF_ENABLE === 'on'" i18n="ONVIF.saveHome" :titleOffset="2" :span="4" @click="ONVIFSaveHome" />
+            <SettingComment v-if="oldConfig.ONVIF_ENABLE === 'on'" i18n="ONVIF.note" />
           </div>
         </ElTabPane>
 
@@ -981,6 +983,9 @@
       RTMPRestart() {
         this.rtspRestart = true;
         this.Submit();
+      },
+      ONVIFSaveHome() {
+        this.Exec('onvifhome');
       },
       CenterMark() {
         const mode = this.centerMark ? 'off' : 'on';
