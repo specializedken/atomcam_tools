@@ -10,8 +10,7 @@ Guidance for AI coding agents working in this fork.
 Fork of [mnakada/atomcam_tools](https://github.com/mnakada/atomcam_tools) (custom firmware for ATOM Cam / **AtomSwing**).
 Upstream has pan/tilt but **no ONVIF**. This fork adds a small ONVIF Device/Media/PTZ service **on the cam itself**,
 so NVRs (we use Frigate, with autotracking) can drive the two outdoor Swings directly. It is the upstream-able
-successor of the external shim in the sibling repo `/media/Tac/kevin/dev/onvif-ptz` (`onvif_ptz.py`, Python, runs on
-the server and talks to each cam over HTTP). Same behaviour, ported to Go and run on the cam.
+successor of an external Python shim that ran on the server and talked to each cam over HTTP (that shim, its repo and its container were deleted 2026-10-08). Same behaviour, ported to Go and run on the cam.
 
 - Fork: `origin` = https://github.com/specializedken/atomcam_tools, `upstream` = mnakada/atomcam_tools
 - Branch: **`onvif-ptz`** (pushed to origin). Feature commit `35fe9a2`, on top of upstream `313048b` (Ver.2.5.19).
@@ -82,7 +81,7 @@ Not yet verified: a live Frigate autotrack, concurrent clients, the new "Save ho
 
 ## The cams and the update path (important)
 
-- Cams: `garage` 192.168.1.129, `kitchen` 192.168.1.50 (DHCP). Both run atomcam_tools **2.5.19**, kernel `#2 PREEMPT Sun May 11 07:01:36 UTC 2025`.
+- Cams: `garage` 192.168.1.129, `kitchen` 192.168.1.50 (DHCP). **Both were flashed with the fork's minimal-diff v2 rootfs on 2026-10-08** (stock 2.5.19 base + our files; `ATOMHACKVER` still reads 2.5.19), kernel unchanged: `#2 PREEMPT Sun May 11 07:01:36 UTC 2025`.
   They feed Frigate; both are outdoors. **The user has no easy physical access to them or their SD cards.**
 - Update without the SD card: Web UI -> Maintenance -> "Custom update ZIP" + URL -> Update. The cam `curl`s the zip into `/media/mmc/update`
   and reboots; `initramfs_skeleton/init` unzips it, checks sizes, and `mv -f`s `rootfs_hack.squashfs` (and the kernel, if present) into place.
@@ -92,11 +91,9 @@ Not yet verified: a live Frigate autotrack, concurrent clients, the new "Save ho
   file list matches except our 3 new files + the renamed web bundle, but **1229 existing files differ** (mostly embedded build timestamps; busybox is
   same size/version), 14 differ in size (incl. `usr/bin/videocapture`, `libfdk-aac`, `scripts/webcmd.sh` which is ours), `/etc/shadow` hashes differ,
   and our kernel differs by ~734 KB. Cannot prove those are harmless.
-- **Plan (not built yet):** unpack the *official* 2.5.19 `rootfs_hack.squashfs` (as root, e.g. in the builder container, to keep device nodes/ownership;
-  reuse its compression/block size from `unsquashfs -s`), add only: `usr/bin/onvif`, `etc/init.d/S76onvif`, `scripts/onvif.sh`, patched `scripts/webcmd.sh`,
-  and the new web bundle + `index.html`; repack. Ship a zip containing **only** `rootfs_hack.squashfs` (never the kernel). Host it on the LAN from this
-  machine (e.g. `python3 -m http.server`). Before updating, copy `/media/mmc/rootfs_hack.squashfs` off the cam over ssh as a manual-rollback copy.
-  Try **one cam first**; leave the other untouched. Sanity-check the result with `unsquashfs -l` + a diff against the official tree (should show only our files).
+- **The minimal-diff approach is how both cams were updated** (see the image section below): unpack the *official* 2.5.19 `rootfs_hack.squashfs`, add only our files, repack
+  (gzip, 128K blocks), ship only the rootfs (never the kernel). Kitchen: v1 via web UI Custom update, then v2 by streaming the squashfs over ssh to `/media/mmc/update/`. Garage: v2 via the web UI
+  Custom update (its image also carried an `S21rootkeys` ssh-key patch because no key was trusted yet). Kitchen keeps a rollback copy `/media/mmc/rootfs_hack.squashfs.bak-20261008`; garage has none.
 - **Never start an update/flash on a cam without the user's explicit go-ahead in that conversation.** Updating reboots a cam that Frigate depends on.
 
 ## Firmware exploration (2026-10-06 session; goal: relative moves, zoom, sturdier HEVC)
@@ -142,7 +139,7 @@ Diffed against official: exactly those files differ.
 
 ## Open work / next steps
 
-1. Build the minimal-diff image above; diff-verify it; get the user's OK; update one cam; enable ONVIF in the UI; point the Frigate `onvif:` host/port at the cam.
+1. ~~Build the minimal-diff image, update the cams, enable ONVIF, point Frigate at them~~ **DONE 2026-10-08** (both cams, Frigate `onvif:` -> `<cam>:8000`, max speed 3, `home` presets, shim removed). Still open: watch a real person being autotracked on each cam.
 2. Decide before any upstream PR: auth story (WS-Security) vs. documented LAN-only; default port 8000 clash check; whether to keep `AGENTS.md` out of the PR.
 3. Open the upstream PR **only when the user asks**. PR body must end with the Claude Code attribution line from the session system-reminder, and should mention the "run `build_all` twice for a new package" quirk.
 4. **Native relative move: DONE and verified on kitchen (2026-10-08).** `relmove <dpan> <dtilt> [speed] [pri]` in `libcallback/motor.c` (`local_sdk_motor_move_rel_angle`: degrees -> steps -> `move_rel_step`,
@@ -153,10 +150,11 @@ Diffed against official: exactly those files differ.
    full onvif-zeep suite passes. Caveats: cancelling a *relmove* with a pri-0 move ends 1-2 deg off target (abs-vs-abs cancel is exact; next abs move fixes it, not cumulative, only affects `Stop`);
    one unreproduced overlapping-test reading (184 vs 169); the speed argument seems to change little (10 deg at speed 1 took ~0.3 s). Test scripts must not wipe presets (kitchen's `home` was deleted once and restored).
    Leftover ideas: native `move_track`/`cruise`/`goback`, `local_sdk_motor_move` for true ContinuousMove (needs a hook too).
-5. Sibling repo `/media/Tac/kevin/dev/onvif-ptz` has **uncommitted** work: a `max_speed` cap in `onvif_ptz.py` + `config.toml` (`max_speed = 3`), container rebuilt and running,
-   but no test, README or doc update yet. Per that repo's AGENTS.md also update `/media/Tac/kevin/dev/os-management` (`services/home-automation.md`, "PTZ via ONVIF shim...").
-   The shim keeps running until the cams serve ONVIF themselves; Frigate config lives outside both repos (`/home/kevin/frigate/config.yml`, contains secrets - never copy into a repo;
-   always `docker exec frigate python3 -m frigate --validate-config` before restarting Frigate).
+5. Docs outside this repo: `/media/Tac/kevin/dev/os-management` (`services/home-automation.md`, `services/docker.md`) describe the native ONVIF setup (updated 2026-10-08). The Frigate config lives outside any repo
+   (`/home/kevin/frigate/config.yml`, contains secrets - never copy into a repo; always `docker exec frigate python3 -m frigate --validate-config` before restarting Frigate; backups `config.yml.pre-kitchen-onvif`, `config.yml.pre-garage-onvif`).
+6. **Testing lesson (2026-10-08):** Frigate autotracking moves the cams by itself. With the old shim still steering garage, back-to-back test moves failed ~25% of the time; with the shim stopped, 24/24 passed.
+   Stop Frigate (or disable `autotracking`) before motor tests, and never wipe presets in test scripts (`home` was deleted once and re-created).
+7. Ideas not done: auth (WS-Security); native `move_track`/`cruise`/`goback`; true `ContinuousMove` through `local_sdk_motor_move` (needs a hook); the open question of the 1-2 deg miss after cancelling a relmove.
 
 ## Rules of the road
 
