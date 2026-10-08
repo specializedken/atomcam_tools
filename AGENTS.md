@@ -111,8 +111,10 @@ Goal: find out whether the stock firmware exposes more than we use. Nothing was 
   No auth. AtomSwing: latest is 4.37.1.180 (2026/4/7); 4.37.1.166 (2025/3/10) is the 2.5.19-verified era and matches the cams' kernel date (2025-05-11).
   Downloaded + SHA1-verified both (180: `820633ce…e7c5`, 166: `2ea1d277…f2877`); saved under `/tmp/opencode/atomfw/` (volatile — move if wanted).
   Vendor forced-update path (their FAQ): copy `demo.bin` unrenamed to the SD root. The .bin is a signed `jz_fw` image (per-version signature header).
-- **ssh to the cams is not possible**: sshd is stock, root is key-only, and no `authorized_keys` was ever put on the SD card (`ssh root@192.168.1.50` -> `Permission denied (publickey,...)`).
-  A key can only be planted by shipping a whole new rootfs (init only accepts `atomcam_tools.zip`, `rootfs_hack.squashfs/.ext2`, `factory_t31_*`), i.e. the minimal-diff image above with `/root/.ssh/authorized_keys` baked in. Needs the user's explicit go-ahead.
+- **ssh to the cams works** (corrected 2026-10-08; an earlier note here claiming it was impossible was wrong). Stock sshd is key-only for root and reads the SD card's
+  `/media/mmc/authorized_keys` (copied to `/root/.ssh` at boot by `S21rootkeys`; `S55sshd` only starts sshd if that file exists). Nothing needs baking into the rootfs.
+  Both cams' SD files held the user's RSA key from install. On kitchen it has been replaced by the dedicated key `~/.ssh/id_atomcam` (ed25519, `atomcam-root`;
+  backup of the old file: `/media/mmc/authorized_keys.bak-20261008`). Use `ssh -i ~/.ssh/id_atomcam root@192.168.1.50`. Garage still has the original RSA entry.
 - **SMB** (guest, writable) only shares SD subfolders `record`, `time_lapse`, `alarm_record`, `update`; the SD root (where `rootfs_hack.squashfs` lives) is not shared, so SMB cannot read the firmware.
 - **Stock 2.5.19 image** is unpacked in the session scratchpad (not persistent). It contains only the hack layer; the vendor stack (`iCamera_app`, `libimp.so`, `liblocalsdk.so`) lives in the cam's flash, so it is absent.
 - **Vendor app partition decoded (Ghidra, 2026-10-06).** `demo.bin` = signed `jz_fw` image (signature header at byte 0) containing **two standard squashfs-tools 4.x images** (xz, compressed inodes+frags — the earlier "vendor superblock quirk"/header-patch theory was wrong; slice the original bytes and `unsquashfs` works):
@@ -128,23 +130,29 @@ Goal: find out whether the stock firmware exposes more than we use. Nothing was 
   - **onvifOff**: queue `killall -9 xcamera` + `rm /tmp/onvif -rf`, clear the flag, send 0x3f6.
   - **PTZ** via custom_action 0x4e9: `PTZ_relative_rotation` -> `move_rel_step` (H/VRotationSteps, flip-signs via settings); `PTZ_set_position`/`PTZ_center` -> `move_abs_angle` (CenterType 1=h-max, 2=v-max, 3=reset); `PTZ_continuous_rotation` -> `local_sdk_motor_move` (speed 9, both-0 = stop). Shell commands go through an "exec-iCame" **SysV msgqueue IPC** (command queue `DAT_0068abf4` -> response queue `DAT_0068abf0`, synchronous send-then-wait-for-output); the **executor is `assis`** (`exec-shell-pool`/`shell_popen` — imports `fork/popen/system/opendir/access/stat` + the msgqueue primitives, no `execve`, no onvif awareness — it just runs the exact command string it's sent).
   - **Nothing ever execs `/tmp/onvif/xcamera`.** `iCamera_app` has **no `fork`/`execve` import** (only `system`, 22 call sites, none launch xcamera); `assis` has no `execve` either; the `.onvif` flag file is created but never read by any process; the onvif flag global is written by the two handlers and read only by the cloud property reporter (`FUN_0044ab2c`, `snprintf("%d", DAT_0066dbec)`); no binary in either image contains a launch reference to xcamera (exactly 3 `/tmp/onvif` literals: download dest, `touch`, `rm`). **Conclusion: in 4.37.1.166 (and 180, identical) the xcamera ONVIF server is downloaded and staged but never started — a half-wired / unshipped feature.** The `killall`/`rm` on OFF implies the vendor intended it to run, but the launch path is absent from these builds. This is why **our own Go ONVIF daemon on the cam is the right path** — you can't just "flip the vendor's ONVIF on".
-- **Next candidate:** minimal-diff image + ssh key -> dump `/system` and `nm -D`/`strings` for motor/ptz/crop/encoder attr.
+- **Next candidate:** ssh into a cam (works, see above) -> dump `/system` and `nm -D`/`strings` for motor/ptz/crop/encoder attr.
 
-## Minimal-diff image (built 2026-10-08, NOT flashed)
+## Minimal-diff image (v1 then v2 flashed on kitchen 2026-10-08; garage still stock)
 
 `vendor-fw/` (gitignored) holds the vendor dumps + the build. Official 2.5.19 rootfs repacked (gzip, 128K blocks, size matches init's padded-size check)
-with only: `usr/bin/onvif`, `etc/init.d/S76onvif`, `scripts/{onvif,webcmd}.sh`, new web bundle + `index.html`, and an ssh key:
-`S21rootkeys` is patched to append `/etc/authorized_keys.fork` (key `~/.ssh/id_atomcam`) after copying the SD `authorized_keys`
-(upstream's copy would otherwise wipe a baked key; sshd only starts when `/media/mmc/authorized_keys` exists, which it does on the cams).
-Output: `vendor-fw/work/atomcam_tools.zip` (rootfs only, no kernel). Build/verify scripts were scratch; recipe = unsquashfs both, copy files, `mksquashfs -comp gzip -b 131072 -noappend`, as root in `debian:12-slim`.
-Diffed against official: exactly those files differ. The ssh-key patch is fork-only, keep it out of any upstream PR.
+with only: `usr/bin/onvif`, `etc/init.d/S76onvif`, `scripts/{onvif,webcmd}.sh`, new web bundle + `index.html` (v1 image also carried a `S21rootkeys` ssh-key patch,
+dropped in v2 because the key now lives on the SD card). Output (v1): `vendor-fw/work/atomcam_tools.zip`; rootfs-only recipe = unsquashfs both, copy files, `mksquashfs -comp gzip -b 131072 -noappend`, as root in `debian:12-slim`.
+Another way to update once ssh works: stream the squashfs to `/media/mmc/update/rootfs_hack.squashfs` and reboot (init moves it into place; keep a `.bak` of the old one on the SD first).
+Diffed against official: exactly those files differ.
 
 ## Open work / next steps
 
 1. Build the minimal-diff image above; diff-verify it; get the user's OK; update one cam; enable ONVIF in the UI; point the Frigate `onvif:` host/port at the cam.
 2. Decide before any upstream PR: auth story (WS-Security) vs. documented LAN-only; default port 8000 clash check; whether to keep `AGENTS.md` out of the PR.
 3. Open the upstream PR **only when the user asks**. PR body must end with the Claude Code attribution line from the session system-reminder, and should mention the "run `build_all` twice for a new package" quirk.
-4. **Deferred (decision 2026-10-06): native relative move.** `liblocalsdk_motor.so` (vendor lib in flash, already loaded by the hack app) exports `local_sdk_motor_move_rel_angle` / `move_rel_step` (+ `move_abs_step`, `move_track`, `cruise`, `goback`, `reset`) — same 6-arg shape as `move_abs_angle`; the vendor's `PTZ_relative_rotation` uses `move_rel_step`. Upgrade path: add a `relmove` verb to `libcallback` (`command.c` verb table + `MotorRelMove` in `motor.c`, sign-flip under hflip/vflip — NOT the 355-x angle math), then make the daemon's `RelativeMove` a single socket command instead of read+delta. Wins: no read->move race, one round-trip per move, no 0/355 wraparound in Go. Cost: a recompiled `libcallback.so` becomes a 6th file in the minimal-diff image + real-cam motor verification. Do it in a **second** firmware iteration after ONVIF is proven on one cam.
+4. **Native relative move: DONE and verified on kitchen (2026-10-08).** `relmove <dpan> <dtilt> [speed] [pri]` in `libcallback/motor.c` (`local_sdk_motor_move_rel_angle`: degrees -> steps -> `move_rel_step`,
+   clamped +-2130/+-1580 steps; hflip/vflip signs negated; done-callback re-reads the position like the vendor app) and the daemon's `RelativeMove` (FOV + generic space) is now one `relmove` command, no read-then-move.
+   Image `vendor-fw/work/rootfs_hack.v2.squashfs` (new `libcallback.so` built with the firmware's own toolchain: the unmodified source gives exactly the official 129252 bytes) is running on kitchen.
+   Verified on the cam: +-5 pan/tilt exact (tilt quantised to ~0.1 deg), out-and-back returns to the exact start (old read+abs path drifted 0.1-0.3 deg per round trip), same sign as abs `move`,
+   SDK clamps at the mechanical limit (tilt 188 -> 180.0, no grinding), same/lower pri while busy -> `error : dismiss request.`, pri 0 preempts (victim gets `error : multiple request.`),
+   full onvif-zeep suite passes. Caveats: cancelling a *relmove* with a pri-0 move ends 1-2 deg off target (abs-vs-abs cancel is exact; next abs move fixes it, not cumulative, only affects `Stop`);
+   one unreproduced overlapping-test reading (184 vs 169); the speed argument seems to change little (10 deg at speed 1 took ~0.3 s). Test scripts must not wipe presets (kitchen's `home` was deleted once and restored).
+   Leftover ideas: native `move_track`/`cruise`/`goback`, `local_sdk_motor_move` for true ContinuousMove (needs a hook too).
 5. Sibling repo `/media/Tac/kevin/dev/onvif-ptz` has **uncommitted** work: a `max_speed` cap in `onvif_ptz.py` + `config.toml` (`max_speed = 3`), container rebuilt and running,
    but no test, README or doc update yet. Per that repo's AGENTS.md also update `/media/Tac/kevin/dev/os-management` (`services/home-automation.md`, "PTZ via ONVIF shim...").
    The shim keeps running until the cams serve ONVIF themselves; Frigate config lives outside both repos (`/home/kevin/frigate/config.yml`, contains secrets - never copy into a repo;

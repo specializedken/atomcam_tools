@@ -99,6 +99,20 @@ func (c *Cam) move(pan, tilt float64, speed, pri int) {
 	}()
 }
 
+// relmove fires a native relative move (degrees, + = right/up in the image; the cam handles the flips).
+func (c *Cam) relmove(dpan, dtilt float64, speed, pri int) {
+	dpan, dtilt = clamp(dpan, -panMax, panMax), clamp(dtilt, -tiltMax, tiltMax)
+	speed = int(clamp(float64(speed), 1, float64(c.maxSpeed)))
+	cmd := fmt.Sprintf("relmove %.2f %.2f %d %d", dpan, dtilt, speed, pri)
+	atomic.AddInt32(&c.inflight, 1)
+	go func() {
+		defer atomic.AddInt32(&c.inflight, -1)
+		if _, err := c.exec(cmd, 60*time.Second); err != nil {
+			log.Printf("relmove failed: %v", err)
+		}
+	}()
+}
+
 func (c *Cam) inflightNow() int32 { return atomic.LoadInt32(&c.inflight) }
 
 func (c *Cam) toNorm(pan, tilt float64) (float64, float64) {
@@ -131,23 +145,15 @@ func (c *Cam) absolute(x, y float64, speed *float64) {
 	c.move(pan, tilt, speedToCam(speed), 2)
 }
 
+// relative: translation over the whole range, +-1 = full pan/tilt travel.
 func (c *Cam) relative(dx, dy float64, speed *float64) error {
-	pan, tilt, _, err := c.position()
-	if err != nil {
-		return err
-	}
-	x, y := c.toNorm(pan, tilt)
-	c.absolute(x+dx, y+dy, speed)
+	c.relmove(dx/2*panMax, dy/2*tiltMax, speedToCam(speed), 2)
 	return nil
 }
 
 // relativeFov: translation in FOV space, +-1 = half the field of view (frame edge).
 func (c *Cam) relativeFov(dx, dy float64, speed *float64) error {
-	pan, tilt, _, err := c.position()
-	if err != nil {
-		return err
-	}
-	c.move(pan+dx*c.hfov/2, tilt+dy*c.vfov/2, speedToCam(speed), 2)
+	c.relmove(dx*c.hfov/2, dy*c.vfov/2, speedToCam(speed), 2)
 	return nil
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -53,7 +54,11 @@ func (f *fakeCam) handle(conn net.Conn) {
 	f.mu.Unlock()
 	var pan, tilt float64
 	var speed, pri int
-	if c, _ := fmt.Sscanf(cmd, "move %f %f %d %d", &pan, &tilt, &speed, &pri); c < 2 {
+	if c, _ := fmt.Sscanf(cmd, "relmove %f %f %d %d", &pan, &tilt, &speed, &pri); c >= 2 {
+		f.mu.Lock()
+		pan, tilt = f.pan+pan, f.tilt+tilt
+		f.mu.Unlock()
+	} else if c, _ := fmt.Sscanf(cmd, "move %f %f %d %d", &pan, &tilt, &speed, &pri); c < 2 {
 		f.mu.Lock()
 		idle := 1
 		if f.busy {
@@ -78,7 +83,7 @@ func (f *fakeCam) moves() []string {
 	defer f.mu.Unlock()
 	var out []string
 	for _, c := range f.cmds {
-		if strings.HasPrefix(c, "move ") {
+		if strings.HasPrefix(c, "move ") || strings.HasPrefix(c, "relmove ") {
 			out = append(out, c)
 		}
 	}
@@ -171,9 +176,27 @@ func TestRelativeMoveFov(t *testing.T) {
 		`<tt:PanTilt x="0.5" y="-1" space="http://www.onvif.org/ver10/tptz/PanTiltSpaces/TranslationSpaceFov"/>`+
 		`</tptz:Translation><tptz:Speed><tt:PanTilt x="0.5" y="0.5"/></tptz:Speed></tptz:RelativeMove>`)
 	waitIdle(c)
-	// from 100/90: pan + 0.5*108/2 = 127, tilt - 1*54/2 = 63, speed ceil(.5*9) = 5
+	// one native relative command, no position read first: pan + 0.5*108/2, tilt - 1*54/2, speed ceil(.5*9) = 5
 	m := f.moves()
-	if len(m) != 1 || m[0] != "move 127.00 63.00 5 2" {
+	if len(m) != 1 || m[0] != "relmove 27.00 -27.00 5 2" {
+		t.Errorf("moves = %v", m)
+	}
+	for _, c := range f.cmds {
+		if c == "move" {
+			t.Errorf("RelativeMove must not read the position first, cmds = %v", f.cmds)
+		}
+	}
+	if x, y, _, _ := c.status(); math.Abs(x-(127/panMax*2-1)) > 1e-6 || math.Abs(y-(63/tiltMax*2-1)) > 1e-6 {
+		t.Errorf("landed at %v %v", x, y)
+	}
+}
+
+func TestRelativeMoveGenericSpaceAndSpeedCap(t *testing.T) {
+	c, f, srv := setup(t, 4)
+	soap(t, srv, `<tptz:RelativeMove><tptz:Translation><tt:PanTilt x="-0.2" y="0.5"/></tptz:Translation></tptz:RelativeMove>`)
+	waitIdle(c)
+	// +-1 = full travel: -0.2/2*355 = -35.5, 0.5/2*180 = 45; default speed 9 capped to 4
+	if m := f.moves(); len(m) != 1 || m[0] != "relmove -35.50 45.00 4 2" {
 		t.Errorf("moves = %v", m)
 	}
 }
