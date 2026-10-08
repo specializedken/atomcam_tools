@@ -75,7 +75,10 @@ the actual mipsle binary from the built image under qemu 7.2 (status IDLE->MOVIN
 preset saved, unknown op faults); launcher under busybox in 8 cases; web bundle builds; **full firmware build exit 0** and the squashfs contains
 `/usr/bin/onvif`, `S76onvif`, `onvif.sh`, patched `webcmd.sh`, and the bundle with `ONVIF_ENABLE`.
 
-**Not verified: anything on a real cam.** Nothing has been flashed or run on hardware.
+**Real cam (2026-10-08): kitchen is flashed with the minimal-diff image and running our daemon.** Verified over ONVIF with onvif-zeep: tilt/pan relative moves
+(tilt +y = up, confirmed by eye), MOVING/IDLE, ContinuousMove+Stop, presets set/goto/remove, faults, autostart across reboot (position returns to 164.0/77.0).
+Frigate's kitchen `onvif:` now points at `192.168.1.50:8000` (max speed 3 to match the old shim's calibration; `home` preset seeded by hand). Garage is still on stock 2.5.19 + the shim.
+Not yet verified: a live Frigate autotrack, concurrent clients, the new "Save home position" button (committed, not yet in any flashed image).
 
 ## The cams and the update path (important)
 
@@ -96,12 +99,53 @@ preset saved, unknown op faults); launcher under busybox in 8 cases; web bundle 
   Try **one cam first**; leave the other untouched. Sanity-check the result with `unsquashfs -l` + a diff against the official tree (should show only our files).
 - **Never start an update/flash on a cam without the user's explicit go-ahead in that conversation.** Updating reboots a cam that Frigate depends on.
 
+## Firmware exploration (2026-10-06 session; goal: relative moves, zoom, sturdier HEVC)
+
+Goal: find out whether the stock firmware exposes more than we use. Nothing was run on a cam; no cam was touched.
+
+- **Vendor firmware is NOT in the ATOM app APK** (`ATOM+-+...4.160.3_APKPure.xapk`, untracked in repo root; do not commit). The app fetches firmware from the vendor cloud, per device, with an account token.
+  We stopped there on purpose: no replicating the app's request signing/auth against the vendor server.
+  **UPDATE 2026-10-06:** public route found — the vendor (ATOM tech Inc.) lists its full firmware history on the official support page
+  (`https://www.atomtech.co.jp/support/`, section "ATOM Camファームウェア", an embedded public Google Spreadsheet).
+  Every release (Cam / Cam 2 / Swing, back to 2020) is a public Google Drive file (zip containing `demo.bin`) with the .bin SHA1 published in the sheet.
+  No auth. AtomSwing: latest is 4.37.1.180 (2026/4/7); 4.37.1.166 (2025/3/10) is the 2.5.19-verified era and matches the cams' kernel date (2025-05-11).
+  Downloaded + SHA1-verified both (180: `820633ce…e7c5`, 166: `2ea1d277…f2877`); saved under `/tmp/opencode/atomfw/` (volatile — move if wanted).
+  Vendor forced-update path (their FAQ): copy `demo.bin` unrenamed to the SD root. The .bin is a signed `jz_fw` image (per-version signature header).
+- **ssh to the cams is not possible**: sshd is stock, root is key-only, and no `authorized_keys` was ever put on the SD card (`ssh root@192.168.1.50` -> `Permission denied (publickey,...)`).
+  A key can only be planted by shipping a whole new rootfs (init only accepts `atomcam_tools.zip`, `rootfs_hack.squashfs/.ext2`, `factory_t31_*`), i.e. the minimal-diff image above with `/root/.ssh/authorized_keys` baked in. Needs the user's explicit go-ahead.
+- **SMB** (guest, writable) only shares SD subfolders `record`, `time_lapse`, `alarm_record`, `update`; the SD root (where `rootfs_hack.squashfs` lives) is not shared, so SMB cannot read the firmware.
+- **Stock 2.5.19 image** is unpacked in the session scratchpad (not persistent). It contains only the hack layer; the vendor stack (`iCamera_app`, `libimp.so`, `liblocalsdk.so`) lives in the cam's flash, so it is absent.
+- **Vendor app partition decoded (Ghidra, 2026-10-06).** `demo.bin` = signed `jz_fw` image (signature header at byte 0) containing **two standard squashfs-tools 4.x images** (xz, compressed inodes+frags — the earlier "vendor superblock quirk"/header-patch theory was wrong; slice the original bytes and `unsquashfs` works):
+  - **sqf1** = vendor **rootfs** (395 inodes, 1 MB blocks), magic `hsqs` at file offset **0x1F0040**: busybox, `init/`, `etc/`, drivers, `linuxrc`.
+  - **sqf2** = vendor **app partition** (106 inodes, 512 KB blocks), magic at **0x5C0040**: `bin/iCamera_app`, `bin/assis`, `liblocalsdk*.so`, `libimp.so`, `init/{start.sh,app_init.sh,mnt.sh,factory.sh,wifi.sh}`. This is the vendor app stack the hack rootfs overlays on the real cam.
+  - Analysis workhorse: `fw_166` (4.37.1.166, era-matched to the cams); `fw_180` extracted for comparison — its `iCamera_app` differs (different build) but the ONVIF code path + strings are **identical**. Ghidra 12.1.3 headless server (127.0.0.1:8089, `GHIDRA_MCP_ALLOW_SCRIPTS=1`) + `run_script_inline` (**body-only** — the bridge wraps it in a `GhidraScript` subclass) for decompilation; dumps under `/tmp/opencode/atomfw/dumps/` (volatile). Host objdump can't disassemble MIPS — use Ghidra. `iCamera_app` = MIPS o32, base 0x400000, **VA = file offset + 0x400000**; 3612 fns; the cloud-command handler is `iot_msg_process_handler` @ 0x44d860 (dump `fn_0044d860.c`).
+- **Q1 — native relative moves: YES.** `iCamera_app` PTZ wrappers call the native SDK (`dumps/fn_0040f*`): `FUN_0040f844(H,V,sp)` -> `local_sdk_motor_move_rel_step(h,v,sp,cb,cb,2)` (**native relative step** = what `PTZ_relative_rotation` uses); `FUN_0040f894` -> `local_sdk_motor_move_abs_angle` (absolute — the only move our fork hooks); `FUN_0040f7f4(h,v,9)` -> `local_sdk_motor_move` (continuous primitive, `PTZ_continuous_rotation`, speed hardcoded 9); `FUN_0040f4bc()` -> `local_sdk_motor_stop`; `FUN_0040f450`/`0x46c` set/clear motor-state flags around moves. Our daemon's `RelativeMove` (read position + delta -> absolute, `soap.go`/`cam.go`/`TestRelativeMoveFov`) is behaviourally equivalent but could use the native step call if we ever hook more of the SDK.
+- **Q2 — zoom: not a fixed-lens limitation.** `libimp.so` (Ingenic T31 IMP) exposes `IMP_FrameSource_SetFrameOffset` (digital crop/scale), `IMP_ISP_Tuning_SetFrontCrop`, `SetAutoZoom` + scaler/defog/DRC knobs. Nothing in `iCamera_app` uses them and the hooked SDK has no zoom symbol — **unhooked, not impossible**. Digital crop lowers effective resolution (poor fit for Frigate autotracking), consistent with the repo-source read.
+- **Q3 — HEVC encoder: rich knobs in `libimp.so`.** `IMP_Encoder_SetChnAttrRcMode`/`..._Qp`/`..._QpBounds`/`..._BitRate`/`..._GopAttr`, `IMP_Encoder_GetChnAttr`, `IMP_Encoder_RequestIDR`, an `AL_*` software encoder (AVC+HEVC), and `local_sdk_video_set_parameters/fps/kbps`. `iCamera_app` only sets bitrate/fps/GOP, so RC-mode/QP/profile (in the attr struct to `IMP_Encoder_CreateChn`) are unhooked. Confirms the repo read: GOP/fps at CreateChn are hard maxima, GOP divides fps.
+- **Stock ONVIF (`xcamera`) path — fully decoded, and it is a dead feature in these builds.** The vendor has an in-camera ONVIF server binary, `xcamera`, driven **entirely by the vendor cloud** (AWS IoT shadow) — no LAN/ONVIF discovery. All in `iot_msg_process_handler`:
+  - Cloud command vocabulary (mapper `FUN_0044a8c4`, name->ID): powerOn 0x4cf, powerOff 0x4d0, upgrade 0x4d1, delDev 0x4d2, getLog 0x4d3, alarmAction 0x4d4, motionAlarmOn/Off 0x4d5/0x4d6, devReboot 0x4d7, sensorToken 0x4d8, setGmtOffset 0x4d9, setProperty 0x4da, setSubProperty 0x4db, setPropertyList 0x4e4, rtmpStart/End 0x4dd/0x4df, motorActive 0x4de, **onvifOn 0x4e0**, **onvifOff 0x4e1**, sirenOn/Off 0x4e2/0x4e3, webrtcChannel 0x4e5, resetService 0x4e8, custom_action 0x4e9 (PTZ verbs).
+  - **onvifOn {url, md5}**: gate `FUN_00433b10()!=1`; parse `url`+`md5` from the cloud JSON; libcurl-GET `url` -> `/tmp/onvif/xcamera` (`downLoad`, `downloadfiles.c:81`, optional CA cert); then `md5sum /tmp/Test/factoryTestProcess` and `strncmp` vs the cloud `md5`. **The md5 check is on the *factory-test* binary, NOT the downloaded xcamera** (verified from raw bytes at VA 0x540df0; a copy-paste quirk from the factory-update flow — the xcamera binary itself is never integrity-checked). On match: queue `touch /tmp/onvif/.onvif`, set flag `DAT_0066dbec=1`, send cloud report 0x3f6, log "start onvif success".
+  - **onvifOff**: queue `killall -9 xcamera` + `rm /tmp/onvif -rf`, clear the flag, send 0x3f6.
+  - **PTZ** via custom_action 0x4e9: `PTZ_relative_rotation` -> `move_rel_step` (H/VRotationSteps, flip-signs via settings); `PTZ_set_position`/`PTZ_center` -> `move_abs_angle` (CenterType 1=h-max, 2=v-max, 3=reset); `PTZ_continuous_rotation` -> `local_sdk_motor_move` (speed 9, both-0 = stop). Shell commands go through an "exec-iCame" **SysV msgqueue IPC** (command queue `DAT_0068abf4` -> response queue `DAT_0068abf0`, synchronous send-then-wait-for-output); the **executor is `assis`** (`exec-shell-pool`/`shell_popen` — imports `fork/popen/system/opendir/access/stat` + the msgqueue primitives, no `execve`, no onvif awareness — it just runs the exact command string it's sent).
+  - **Nothing ever execs `/tmp/onvif/xcamera`.** `iCamera_app` has **no `fork`/`execve` import** (only `system`, 22 call sites, none launch xcamera); `assis` has no `execve` either; the `.onvif` flag file is created but never read by any process; the onvif flag global is written by the two handlers and read only by the cloud property reporter (`FUN_0044ab2c`, `snprintf("%d", DAT_0066dbec)`); no binary in either image contains a launch reference to xcamera (exactly 3 `/tmp/onvif` literals: download dest, `touch`, `rm`). **Conclusion: in 4.37.1.166 (and 180, identical) the xcamera ONVIF server is downloaded and staged but never started — a half-wired / unshipped feature.** The `killall`/`rm` on OFF implies the vendor intended it to run, but the launch path is absent from these builds. This is why **our own Go ONVIF daemon on the cam is the right path** — you can't just "flip the vendor's ONVIF on".
+- **Next candidate:** minimal-diff image + ssh key -> dump `/system` and `nm -D`/`strings` for motor/ptz/crop/encoder attr.
+
+## Minimal-diff image (built 2026-10-08, NOT flashed)
+
+`vendor-fw/` (gitignored) holds the vendor dumps + the build. Official 2.5.19 rootfs repacked (gzip, 128K blocks, size matches init's padded-size check)
+with only: `usr/bin/onvif`, `etc/init.d/S76onvif`, `scripts/{onvif,webcmd}.sh`, new web bundle + `index.html`, and an ssh key:
+`S21rootkeys` is patched to append `/etc/authorized_keys.fork` (key `~/.ssh/id_atomcam`) after copying the SD `authorized_keys`
+(upstream's copy would otherwise wipe a baked key; sshd only starts when `/media/mmc/authorized_keys` exists, which it does on the cams).
+Output: `vendor-fw/work/atomcam_tools.zip` (rootfs only, no kernel). Build/verify scripts were scratch; recipe = unsquashfs both, copy files, `mksquashfs -comp gzip -b 131072 -noappend`, as root in `debian:12-slim`.
+Diffed against official: exactly those files differ. The ssh-key patch is fork-only, keep it out of any upstream PR.
+
 ## Open work / next steps
 
 1. Build the minimal-diff image above; diff-verify it; get the user's OK; update one cam; enable ONVIF in the UI; point the Frigate `onvif:` host/port at the cam.
 2. Decide before any upstream PR: auth story (WS-Security) vs. documented LAN-only; default port 8000 clash check; whether to keep `AGENTS.md` out of the PR.
 3. Open the upstream PR **only when the user asks**. PR body must end with the Claude Code attribution line from the session system-reminder, and should mention the "run `build_all` twice for a new package" quirk.
-4. Sibling repo `/media/Tac/kevin/dev/onvif-ptz` has **uncommitted** work: a `max_speed` cap in `onvif_ptz.py` + `config.toml` (`max_speed = 3`), container rebuilt and running,
+4. **Deferred (decision 2026-10-06): native relative move.** `liblocalsdk_motor.so` (vendor lib in flash, already loaded by the hack app) exports `local_sdk_motor_move_rel_angle` / `move_rel_step` (+ `move_abs_step`, `move_track`, `cruise`, `goback`, `reset`) — same 6-arg shape as `move_abs_angle`; the vendor's `PTZ_relative_rotation` uses `move_rel_step`. Upgrade path: add a `relmove` verb to `libcallback` (`command.c` verb table + `MotorRelMove` in `motor.c`, sign-flip under hflip/vflip — NOT the 355-x angle math), then make the daemon's `RelativeMove` a single socket command instead of read+delta. Wins: no read->move race, one round-trip per move, no 0/355 wraparound in Go. Cost: a recompiled `libcallback.so` becomes a 6th file in the minimal-diff image + real-cam motor verification. Do it in a **second** firmware iteration after ONVIF is proven on one cam.
+5. Sibling repo `/media/Tac/kevin/dev/onvif-ptz` has **uncommitted** work: a `max_speed` cap in `onvif_ptz.py` + `config.toml` (`max_speed = 3`), container rebuilt and running,
    but no test, README or doc update yet. Per that repo's AGENTS.md also update `/media/Tac/kevin/dev/os-management` (`services/home-automation.md`, "PTZ via ONVIF shim...").
    The shim keeps running until the cams serve ONVIF themselves; Frigate config lives outside both repos (`/home/kevin/frigate/config.yml`, contains secrets - never copy into a repo;
    always `docker exec frigate python3 -m frigate --validate-config` before restarting Frigate).

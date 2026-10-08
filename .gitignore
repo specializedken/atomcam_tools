@@ -9,3 +9,5 @@ atomcam_tools.zip
 *.log
 bin/
 
+vendor-fw/
+*.xapk
