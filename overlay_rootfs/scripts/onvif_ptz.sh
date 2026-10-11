@@ -12,6 +12,7 @@ CONT_FILE=/tmp/onvif_ptz_cont   # "<h> <v> <speed> <nonce>": the continuous move
 CAL_FILE=/tmp/onvif_ptz_cal     # "<h> <v>": direction (+1/-1 in reported pan/tilt) of the SDK's raw command 1
 PRI=2                           # 0 (cancels everything) - 3
 CONT_TIMEOUT=6                  # a continuous move nobody stops is stopped after this many seconds
+CONT_MARGIN=30                  # ... and so is one that gets this close (degrees) to the end of travel: ~47 deg/s, 0.2 s polls, ~10 deg coast
 
 # one "<number>=<name> <pan> <tilt> 0" per line, which is what the server's get_presets expects
 PRESET_FILE=/media/mmc/onvif_presets.txt
@@ -189,14 +190,34 @@ cont_axis()
   cancel_inflight
   echo "$h $v $sp $$" > $CONT_FILE
   /scripts/cmd contmove $rh $rv $sp $PRI > /dev/null 2>&1
-  # dead man: if nobody sends a Stop, stop anyway (the newest request owns the nonce)
+  # watchdog (the newest request owns the nonce): stop before the end of travel, because nothing says the
+  # SDK soft-limits a continuous drive (~47 deg/s at speed 1), and stop anyway if nobody sends a Stop
   me=$$
   (
-    sleep $CONT_TIMEOUT
-    if [ -f $CONT_FILE ]; then
+    n=0
+    while [ $n -lt $((CONT_TIMEOUT * 5)) ]; do
+      sleep 0.2
+      n=$((n + 1))
+      [ -f $CONT_FILE ] || exit
       read h2 v2 s2 n2 < $CONT_FILE
-      [ "$n2" = "$me" ] && stop_cont
-    fi
+      [ "$n2" = "$me" ] || exit
+      set -- $(/scripts/cmd ptzstatus 2> /dev/null | tr ',' ' ')
+      [ "$2" = "" ] && continue
+      if [ "$4" = 0 ]; then   # the drive ended on its own
+        rm -f $CONT_FILE
+        exit
+      fi
+      lim=0
+      if [ "$h2" = 1 ] && [ "$1" -ge $((355 - CONT_MARGIN)) ]; then lim=1; fi
+      if [ "$h2" = -1 ] && [ "$1" -le $CONT_MARGIN ]; then lim=1; fi
+      if [ "$v2" = 1 ] && [ "$2" -ge $((180 - CONT_MARGIN)) ]; then lim=1; fi
+      if [ "$v2" = -1 ] && [ "$2" -le $CONT_MARGIN ]; then lim=1; fi
+      if [ $lim = 1 ]; then
+        stop_cont
+        exit
+      fi
+    done
+    stop_cont
   ) > /dev/null 2>&1 < /dev/null &
 }
 

@@ -19,6 +19,8 @@ extern int swing;
 int MotorFd = -1;
 int LastPri = 3;
 static int ContMoving = 0;
+static float ContLastPan, ContLastTilt;
+static struct timeval ContLastChange;
 struct timeval MotorLastMovedTime = { 0, 0 };
 
 static void motor_move_done(float pan, float tilt) {
@@ -105,6 +107,7 @@ char *MotorMove(int fd, char *tokenPtr) {
   }
   MotorFd = fd;
   LastPri = pri;
+  ContMoving = 0;
   int res = local_sdk_motor_move_abs_angle(pan, tilt, speed, &motor_move_done, &motor_move_canceled, pri);
   return NULL;
 }
@@ -151,20 +154,20 @@ char *MotorRelMove(int fd, char *tokenPtr) {
   }
   MotorFd = fd;
   LastPri = pri;
+  ContMoving = 0;
   local_sdk_motor_move_rel_angle(pan, tilt, speed, &motor_relmove_done, &motor_move_canceled, pri);
   return NULL;
 }
 
-// continuous moves have no completion to report; just keep ptzstatus honest
+// The SDK calls done as soon as a continuous command is accepted (measured on a cam), not when the
+// head stops, so ContMoving is cleared by contstop, by a new move, or by ptzstatus noticing a stall.
 static void motor_cont_done(float a, float b) {
 
-  ContMoving = 0;
   gettimeofday(&MotorLastMovedTime, NULL);
 }
 
 static void motor_cont_canceled() {
 
-  ContMoving = 0;
   gettimeofday(&MotorLastMovedTime, NULL);
 }
 
@@ -210,6 +213,8 @@ char *MotorContMove(int fd, char *tokenPtr) {
     }
   }
   ContMoving = 1;
+  ContLastPan = -1000.0;
+  gettimeofday(&ContLastChange, NULL);
   gettimeofday(&MotorLastMovedTime, NULL);
   local_sdk_motor_move(h, v, speed, &motor_cont_done, &motor_cont_canceled, pri);
   return "ok";
@@ -236,6 +241,18 @@ char *MotorPtzStatus(int fd, char *tokenPtr) {
   float pan; // 0-355
   float tilt; // 0-180
   if(local_sdk_motor_get_position(&pan, &tilt)) return "error";
+  if(ContMoving) {
+    // a continuous drive that stopped by itself (end of travel) shows as a head that stays put
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    if((pan > ContLastPan + 0.2) || (pan < ContLastPan - 0.2) || (tilt > ContLastTilt + 0.2) || (tilt < ContLastTilt - 0.2)) {
+      ContLastPan = pan;
+      ContLastTilt = tilt;
+      ContLastChange = now;
+    } else if(((now.tv_sec - ContLastChange.tv_sec) * 1000 + (now.tv_usec - ContLastChange.tv_usec) / 1000) > 700) {
+      ContMoving = 0;
+    }
+  }
   if(hflip) pan = 355.0 - pan;
   if(vflip) tilt = 180.0 - tilt;
   sprintf(CommandResBuf, "%d,%d,0,%d\n", (int)(pan + 0.5), (int)(tilt + 0.5), (MotorFd >= 0 || ContMoving) ? 1 : 0);
