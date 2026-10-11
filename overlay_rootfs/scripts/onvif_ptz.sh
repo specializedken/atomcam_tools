@@ -12,6 +12,8 @@ CONT_FILE=/tmp/onvif_ptz_cont   # "<h> <v> <speed> <nonce>": the continuous move
 CAL_FILE=/tmp/onvif_ptz_cal     # "<h> <v>": direction (+1/-1 in reported pan/tilt) of the SDK's raw command 1
 PRI=2                           # 0 (cancels everything) - 3
 CONT_TIMEOUT=6                  # a continuous move nobody stops is stopped after this many seconds
+SLOW_SPEED=3                    # the SDK runs cam speeds 1-3 at one and the same pace (30 deg in ~0.69 s; 5 / 7 / 9: 0.49 / 0.35 / 0.29 s)
+CONT_SPEED_CAP=3                # continuous drives stay on that slow plateau (~47 deg/s): the watchdog margin was sized for it
 CONT_MARGIN=30                  # ... and so is one that gets this close (degrees) to the end of travel: ~47 deg/s, 0.2 s polls, ~10 deg coast
 
 # one "<number>=<name> <pan> <tilt> 0" per line, which is what the server's get_presets expects
@@ -30,14 +32,15 @@ raw_pos()
   /scripts/cmd move 2> /dev/null | awk 'NF >= 2 { print $1, $2; exit }'
 }
 
-# ONVIF speed 0..1 (empty / <= 0 = not given) -> cam speed 1..MAX_SPEED
+# ONVIF speed (0, 1] (empty / <= 0 = not given) -> cam speed. Speeds 1..SLOW_SPEED are all the same pace, so the
+# ONVIF range is spread over SLOW_SPEED+1..MAX_SPEED instead of wasting most of it on the floor.
 cam_speed()
 {
-  awk -v s="$1" -v m="$MAX_SPEED" 'BEGIN {
+  awk -v s="$1" -v m="$MAX_SPEED" -v f="$SLOW_SPEED" 'BEGIN {
     s += 0;
-    if(s <= 0) { print m; exit }
-    v = int(s * m + 0.999);
-    if(v < 1) v = 1;
+    if(m <= f || s <= 0 || s >= 1) { print m; exit }
+    v = f + int(s * (m - f) + 0.999);
+    if(v < f + 1) v = f + 1;
     if(v > m) v = m;
     print v;
   }'
@@ -168,6 +171,7 @@ cont_axis()
     return
   fi
   [ "$dir" != 0 ] && sp=$(cam_speed "$mag")
+  [ "$sp" -gt $CONT_SPEED_CAP ] && sp=$CONT_SPEED_CAP
   if ! calibrate; then
     if [ "$dir" != 0 ]; then
       if [ "$axis" = pan ]; then
