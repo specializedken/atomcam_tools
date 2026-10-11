@@ -191,6 +191,12 @@ fi
     echo "move_stop=/scripts/onvif_ptz.sh stop %s > /dev/null"
     echo "jump_to_abs=/scripts/onvif_ptz.sh absolute %f %f %f > /dev/null"
     echo "jump_to_rel=/scripts/onvif_ptz.sh relative %f %f %f > /dev/null"
+    echo "get_presets=/scripts/onvif_ptz.sh get_presets"
+    echo "set_preset=/scripts/onvif_ptz.sh set_preset %d %s > /dev/null"
+    echo "move_preset=/scripts/onvif_ptz.sh goto_preset %d > /dev/null"
+    echo "remove_preset=/scripts/onvif_ptz.sh remove_preset %d > /dev/null"
+    echo "set_home_position=/scripts/onvif_ptz.sh set_home > /dev/null"
+    echo "goto_home_position=/scripts/onvif_ptz.sh goto_home > /dev/null"
   fi
 
   echo "events=3"
