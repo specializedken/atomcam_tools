@@ -1,42 +1,96 @@
 #!/bin/sh
 
 # PTZ glue for onvif_simple_server (see onvif.sh for the command wiring).
-# Moves go through the cam's command socket: "move" is absolute, "relmove" is
-# a native relative step move in degrees (+ = right / up in the image).
+# Moves go through the cam's command socket: "move" is absolute, "relmove" a native relative
+# step move in degrees (+ = right / up in the image), "contmove"/"contstop" a continuous drive.
+# The cam is tiny and Frigate polls GetStatus in a tight loop, so the status hooks are wired
+# straight to the socket in onvif.sh and never come through here; this script is for moves.
 
+HACK_INI=/tmp/hack.ini
 MOVING_PREFIX=/tmp/onvif_ptz_moving
-SPEED=5     # 1-9
-PRI=2       # 0 (cancels everything) - 3
+CONT_FILE=/tmp/onvif_ptz_cont   # "<h> <v> <speed> <nonce>": the continuous move in flight, h/v = -1/0/1 (right/up = 1)
+CAL_FILE=/tmp/onvif_ptz_cal     # "<h> <v>": direction (+1/-1 in reported pan/tilt) of the SDK's raw command 1
+PRI=2                           # 0 (cancels everything) - 3
+CONT_TIMEOUT=6                  # a continuous move nobody stops is stopped after this many seconds
 
 # one "<number>=<name> <pan> <tilt> 0" per line, which is what the server's get_presets expects
 PRESET_FILE=/media/mmc/onvif_presets.txt
 MAX_PRESETS=32
 HOME_NAME=home
 
-current_pos()
-{
-  /scripts/cmd move 2> /dev/null | awk '
-    NF >= 2 {
-      printf("%d,%d,0\n", int($1 + 0.5), int($2 + 0.5));
-      ok = 1;
-      exit;
-    }
-    END {
-      if(!ok) print "0,0,0";
-    }'
-}
+MAX_SPEED=$(awk -F "=" '$1 ~ "^[ \t]*ONVIF_MAX_SPEED[ \t]*$" { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit }' $HACK_INI 2> /dev/null)
+case "$MAX_SPEED" in
+  [1-9]) ;;
+  *) MAX_SPEED=5 ;;
+esac
 
 raw_pos()
 {
   /scripts/cmd move 2> /dev/null | awk 'NF >= 2 { print $1, $2; exit }'
 }
 
-# one flag file per running move, so a cancelled move can't clear the flag of the move that replaced it
+# ONVIF speed 0..1 (empty / <= 0 = not given) -> cam speed 1..MAX_SPEED
+cam_speed()
+{
+  awk -v s="$1" -v m="$MAX_SPEED" 'BEGIN {
+    s += 0;
+    if(s <= 0) { print m; exit }
+    v = int(s * m + 0.999);
+    if(v < 1) v = 1;
+    if(v > m) v = m;
+    print v;
+  }'
+}
+
+moving_flags()
+{
+  for f in $MOVING_PREFIX.*; do
+    [ -e "$f" ] && return 0
+  done
+  return 1
+}
+
+stop_cont()
+{
+  [ -f $CONT_FILE ] || return
+  rm -f $CONT_FILE
+  /scripts/cmd contstop > /dev/null 2>&1
+}
+
+# a priority 0 move cancels the one in flight; aim it at where we are so the head settles there
+cancel_inflight()
+{
+  moving_flags || return
+  set -- $(raw_pos)
+  [ "$2" != "" ] && /scripts/cmd move "$1" "$2" 9 0 > /dev/null 2>&1
+}
+
+stop_move()
+{
+  stop_cont
+  cancel_inflight
+}
+
+# the cam dismisses a move while another one runs at the same priority, so the newest request first
+# cancels whatever is in flight, then retries for a moment in case the cancel is still settling.
+# One flag file per running move, so a cancelled move can't clear the flag of the move that replaced it.
 run_move()
 {
+  stop_cont
+  cancel_inflight
   touch $MOVING_PREFIX.$$
   trap "rm -f $MOVING_PREFIX.$$" EXIT
-  /scripts/cmd "$@" > /dev/null 2>&1
+  tries=0
+  while : ; do
+    out=$(/scripts/cmd "$@" 2> /dev/null)
+    case "$out" in
+      *dismiss*) ;;
+      *) break ;;
+    esac
+    tries=$((tries + 1))
+    [ $tries -ge 10 ] && break
+    sleep 0.15
+  done
 }
 
 move_abs()
@@ -45,7 +99,7 @@ move_abs()
   tilt=$2
   [ "$pan" = "" ] && pan=0
   [ "$tilt" = "" ] && tilt=0
-  run_move move "$pan" "$tilt" $SPEED $PRI
+  run_move move "$pan" "$tilt" "$3" $PRI
 }
 
 move_rel()
@@ -54,27 +108,96 @@ move_rel()
   dtilt=$2
   [ "$dpan" = "" ] && dpan=0
   [ "$dtilt" = "" ] && dtilt=0
-  run_move relmove "$dpan" "$dtilt" $SPEED $PRI
+  run_move relmove "$dpan" "$dtilt" "$3" $PRI
 }
 
-# ContinuousMove has no native equivalent: nudge a fixed 30 degrees per unit of velocity, a client Stop ends it early
+# fixed 30 degree nudge per unit of velocity: only used when a continuous move can't be calibrated
 step()
 {
   value=$(awk -v v="$1" 'BEGIN { d = int((v + 0.05) * 30); if(d < 1) d = 1; print d }')
+  speed=$(cam_speed "$1")
   case "$2" in
-    left)  move_rel -$value 0 ;;
-    right) move_rel $value 0 ;;
-    up)    move_rel 0 $value ;;
-    down)  move_rel 0 -$value ;;
+    left)  move_rel -$value 0 $speed ;;
+    right) move_rel $value 0 $speed ;;
+    up)    move_rel 0 $value $speed ;;
+    down)  move_rel 0 -$value $speed ;;
   esac
 }
 
-stop_move()
+# Which way does the SDK's raw direction command 1 drive the head? It depends on the mounting, so
+# measure it once per boot with a short blip on both axes (not near the ends of travel).
+calibrate()
 {
-  ls $MOVING_PREFIX.* > /dev/null 2>&1 || return
-  # a priority 0 move cancels the one in flight; aim it at where we are so the head settles there
+  [ -f $CAL_FILE ] && return 0
   set -- $(raw_pos)
-  [ "$2" != "" ] && /scripts/cmd move "$1" "$2" 9 0 > /dev/null 2>&1
+  [ "$2" = "" ] && return 1
+  p0=$1
+  t0=$2
+  awk -v p="$p0" -v t="$t0" 'BEGIN { exit !(p > 25 && p < 330 && t > 25 && t < 155) }' || return 1
+  /scripts/cmd contmove 1 1 1 $PRI > /dev/null 2>&1
+  sleep 0.4
+  /scripts/cmd contstop > /dev/null 2>&1
+  sleep 0.8
+  set -- $(raw_pos)
+  [ "$2" = "" ] && return 1
+  res=$(awk -v p0="$p0" -v t0="$t0" -v p="$1" -v t="$2" 'BEGIN {
+    dp = p - p0;
+    dt = t - t0;
+    if((dp > 0.3 || dp < -0.3) && (dt > 0.3 || dt < -0.3)) printf("%d %d\n", (dp > 0) ? 1 : -1, (dt > 0) ? 1 : -1);
+  }')
+  move_abs "$p0" "$t0" 5
+  [ "$res" = "" ] && return 1
+  echo "$res" > $CAL_FILE
+}
+
+# $1 = pan|tilt, $2 = signed velocity -1..1 (0 = stop that axis). The server runs one hook per axis
+# back to back, so the axes are merged through CONT_FILE; the last hook of a request wins.
+cont_axis()
+{
+  axis=$1
+  h=0
+  v=0
+  sp=$(cam_speed "")
+  [ -f $CONT_FILE ] && read h v sp nonce < $CONT_FILE
+  dir=$(awk -v x="$2" 'BEGIN { x += 0; print (x > 0) ? 1 : ((x < 0) ? -1 : 0) }')
+  mag=$(awk -v x="$2" 'BEGIN { x += 0; if(x < 0) x = -x; print x }')
+  if [ "$axis" = pan ]; then h=$dir; else v=$dir; fi
+  if [ "$h" = 0 ] && [ "$v" = 0 ]; then
+    stop_cont
+    return
+  fi
+  [ "$dir" != 0 ] && sp=$(cam_speed "$mag")
+  if ! calibrate; then
+    if [ "$dir" != 0 ]; then
+      if [ "$axis" = pan ]; then
+        if [ "$dir" = 1 ]; then step "$mag" right; else step "$mag" left; fi
+      else
+        if [ "$dir" = 1 ]; then step "$mag" up; else step "$mag" down; fi
+      fi
+    fi
+    return
+  fi
+  read ch cv < $CAL_FILE
+  rh=0
+  rv=0
+  if [ "$h" != 0 ]; then
+    if [ "$h" = "$ch" ]; then rh=1; else rh=2; fi
+  fi
+  if [ "$v" != 0 ]; then
+    if [ "$v" = "$cv" ]; then rv=1; else rv=2; fi
+  fi
+  cancel_inflight
+  echo "$h $v $sp $$" > $CONT_FILE
+  /scripts/cmd contmove $rh $rv $sp $PRI > /dev/null 2>&1
+  # dead man: if nobody sends a Stop, stop anyway (the newest request owns the nonce)
+  me=$$
+  (
+    sleep $CONT_TIMEOUT
+    if [ -f $CONT_FILE ]; then
+      read h2 v2 s2 n2 < $CONT_FILE
+      [ "$n2" = "$me" ] && stop_cont
+    fi
+  ) > /dev/null 2>&1 < /dev/null &
 }
 
 # the preset called "home" doubles as the ONVIF home position (Frigate returns to it after tracking)
@@ -105,7 +228,7 @@ save_preset()
 goto_preset()
 {
   set -- $(awk -F '[= ]' -v n="$1" '$1 == n { print $3, $4; exit }' $PRESET_FILE 2> /dev/null)
-  [ "$2" != "" ] && move_abs "$1" "$2"
+  [ "$2" != "" ] && move_abs "$1" "$2" "$(cam_speed "")"
 }
 
 remove_preset()
@@ -117,28 +240,30 @@ remove_preset()
 
 case "$1" in
   get_position)
-    current_pos
+    /scripts/cmd ptzstatus 2> /dev/null | awk -F, 'NF >= 3 { print $1 "," $2 "," $3 }'
     ;;
   is_moving)
-    ls $MOVING_PREFIX.* > /dev/null 2>&1 && echo 1 || echo 0
+    /scripts/cmd ptzstatus 2> /dev/null | awk -F, 'NF >= 4 { print $4 + 0; ok = 1 } END { if(!ok) print 0 }'
     ;;
   move_left)
-    step "$2" left
+    cont_axis pan -$2
     ;;
   move_right)
-    step "$2" right
+    cont_axis pan $2
     ;;
   move_up)
-    step "$2" up
+    cont_axis tilt $2
     ;;
   move_down)
-    step "$2" down
+    cont_axis tilt -$2
     ;;
   absolute)
-    move_abs "$2" "$3"
+    # x y z speed
+    move_abs "$2" "$3" "$(cam_speed "$5")"
     ;;
   relative)
-    move_rel "$2" "$3"
+    # dx dy dz speed
+    move_rel "$2" "$3" "$(cam_speed "$5")"
     ;;
   stop)
     stop_move

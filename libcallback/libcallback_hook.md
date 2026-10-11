@@ -278,6 +278,16 @@ AtomCamSwingでpan/tiltを現在位置からの相対角度(度)で動かす。d
 
 moveと同様に移動中は次のコマンドはエラーになり(優先度が高い場合は移動中のものをキャンセル)、移動し終わると位置とflipの値を`move`と同じ形式で返す。
 
+```
+contmove <h 0-2> <v 0-2> [<speed 1-9:default 9>] [<priority 0-3:default 2>]
+contstop
+ptzstatus
+```
+
+AtomCamSwingでpan/tiltを止めるまで動かし続ける(SDKの`local_sdk_motor_move`/`local_sdk_motor_stop`)。h, vはSDKの生の方向コマンドで、0は動かさない、1と2は互いに逆向き。どちらがどの向きかは設置(flip)で変わる。すぐに`ok`を返す。
+
+`ptzstatus`は`pan,tilt,0,moving`を1行で返す(整数に丸め、flipは`move`と同様に補正)。movingは`move`/`relmove`/`contmove`のどれかが動作中なら1。ONVIFのGetStatus用。
+
 
 
 ### mp4write.c
