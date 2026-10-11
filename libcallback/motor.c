@@ -8,6 +8,7 @@ extern char CommandResBuf[];
 
 extern int local_sdk_motor_get_position(float *step,float *angle);
 extern int local_sdk_motor_move_abs_angle(float pan, float tilt, int speed, void (*done)(float a, float b), void (*canceled)(void), int mode);
+extern int local_sdk_motor_move_rel_angle(float pan, float tilt, int speed, void (*done)(float a, float b), void (*canceled)(void), int mode);
 extern int IMP_ISP_Tuning_GetISPHflip(int *pmode);
 extern int IMP_ISP_Tuning_GetISPVflip(int *pmode);
 extern void CommandResponse(int fd, const char *res);
@@ -31,6 +32,17 @@ static void motor_move_done(float pan, float tilt) {
   MotorFd = -1;
   struct timeval tv;
   gettimeofday(&MotorLastMovedTime, NULL);
+}
+
+// the vendor app reads the position back inside its own relative-move callback, so do the same
+static void motor_relmove_done(float a, float b) {
+
+  float pan, tilt;
+  if(local_sdk_motor_get_position(&pan, &tilt)) {
+    pan = a;
+    tilt = b;
+  }
+  motor_move_done(pan, tilt);
 }
 
 static void motor_move_canceled() {
@@ -91,5 +103,51 @@ char *MotorMove(int fd, char *tokenPtr) {
   MotorFd = fd;
   LastPri = pri;
   int res = local_sdk_motor_move_abs_angle(pan, tilt, speed, &motor_move_done, &motor_move_canceled, pri);
+  return NULL;
+}
+
+// relmove <dpan> <dtilt> [speed] [priority] : relative move in degrees, + = right / up as seen in the image
+char *MotorRelMove(int fd, char *tokenPtr) {
+
+  if(!swing) return "error";
+
+  int vflip, hflip;
+  IMP_ISP_Tuning_GetISPHflip(&hflip);
+  IMP_ISP_Tuning_GetISPVflip(&vflip);
+
+  char *p = strtok_r(NULL, " \t\r\n", &tokenPtr);
+  if(!p) return "error";
+  float pan = atof(p);
+  if((pan < -355.0) || (pan > 355.0)) return "error";
+  if(hflip) pan = -pan;
+
+  p = strtok_r(NULL, " \t\r\n", &tokenPtr);
+  if(!p) return "error";
+  float tilt = atof(p);
+  if((tilt < -180.0) || (tilt > 180.0)) return "error";
+  if(vflip) tilt = -tilt;
+
+  p = strtok_r(NULL, " \t\r\n", &tokenPtr);
+  int speed = 9; // 1: low - 9: high speed
+  if(p) speed = atoi(p);
+  if(speed < 1) speed = 1;
+  if(speed > 9) speed = 9;
+
+  p = strtok_r(NULL, " \t\r\n", &tokenPtr);
+  int pri = 2; // 0: high - 3: low
+  if(p) pri = atoi(p);
+  if(pri < 0) pri = 0;
+  if(pri > 3) pri = 3;
+
+  if(MotorFd >= 0) {
+    if(pri < LastPri) {
+      CommandResponse(MotorFd, "error : multiple request.");
+    } else {
+      return "error : dismiss request.";
+    }
+  }
+  MotorFd = fd;
+  LastPri = pri;
+  local_sdk_motor_move_rel_angle(pan, tilt, speed, &motor_relmove_done, &motor_move_canceled, pri);
   return NULL;
 }
