@@ -29,6 +29,12 @@ FRAMERATE=$(awk -F "=" '/^FRAMERATE *=/ {print $2}' $HACK_INI)
 BITRATE_MAIN_AVC=$(awk -F "=" '/^BITRATE_MAIN_AVC *=/ {print $2}' $HACK_INI)
 BITRATE_SUB_HEVC=$(awk -F "=" '/^BITRATE_SUB_HEVC *=/ {print $2}' $HACK_INI)
 BITRATE_MAIN_HEVC=$(awk -F "=" '/^BITRATE_MAIN_HEVC *=/ {print $2}' $HACK_INI)
+IQP_MAIN_AVC=$(awk -F "=" '/^IQP_MAIN_AVC *=/ {print $2}' $HACK_INI)
+IQP_SUB_HEVC=$(awk -F "=" '/^IQP_SUB_HEVC *=/ {print $2}' $HACK_INI)
+IQP_MAIN_HEVC=$(awk -F "=" '/^IQP_MAIN_HEVC *=/ {print $2}' $HACK_INI)
+GOP_MAIN_AVC=$(awk -F "=" '/^GOP_MAIN_AVC *=/ {print $2}' $HACK_INI)
+GOP_SUB_HEVC=$(awk -F "=" '/^GOP_SUB_HEVC *=/ {print $2}' $HACK_INI)
+GOP_MAIN_HEVC=$(awk -F "=" '/^GOP_MAIN_HEVC *=/ {print $2}' $HACK_INI)
 MINIMIZE_ALARM_CYCLE=$(awk -F "=" '/^MINIMIZE_ALARM_CYCLE *=/ {print $2}' $HACK_INI)
 AWS_VIDEO_DISABLE=$(awk -F "=" '/^AWS_VIDEO_DISABLE *=/ {print $2}' $HACK_INI)
 PERIODICREC_SKIP_JPEG=$(awk -F "=" '/^PERIODICREC_SKIP_JPEG *=/ {print $2}' $HACK_INI)
@@ -48,4 +54,9 @@ fi
 [ "$BITRATE_MAIN_AVC" = "" ] || [ "$BITRATE_MAIN_AVC" -le 0 ] || /scripts/cmd video bitrate 0 $BITRATE_MAIN_AVC > /dev/null
 [ "$BITRATE_SUB_HEVC" = "" ] || [ "$BITRATE_SUB_HEVC" -le 0 ] || /scripts/cmd video bitrate 1 $BITRATE_SUB_HEVC > /dev/null
 [ "$BITRATE_MAIN_HEVC" = "" ] || [ "$BITRATE_MAIN_HEVC" -le 0 ] || /scripts/cmd video bitrate 3 $BITRATE_MAIN_HEVC > /dev/null
-
+[ "$IQP_MAIN_AVC" = "" ] || [ "$IQP_MAIN_AVC" -le 0 ] || /scripts/cmd video iqp 0 $IQP_MAIN_AVC > /dev/null
+[ "$IQP_SUB_HEVC" = "" ] || [ "$IQP_SUB_HEVC" -le 0 ] || /scripts/cmd video iqp 1 $IQP_SUB_HEVC > /dev/null
+[ "$IQP_MAIN_HEVC" = "" ] || [ "$IQP_MAIN_HEVC" -le 0 ] || /scripts/cmd video iqp 3 $IQP_MAIN_HEVC > /dev/null
+[ "$GOP_MAIN_AVC" = "" ] || [ "$GOP_MAIN_AVC" -le 0 ] || /scripts/cmd video gop 0 $GOP_MAIN_AVC > /dev/null
+[ "$GOP_SUB_HEVC" = "" ] || [ "$GOP_SUB_HEVC" -le 0 ] || /scripts/cmd video gop 1 $GOP_SUB_HEVC > /dev/null
+[ "$GOP_MAIN_HEVC" = "" ] || [ "$GOP_MAIN_HEVC" -le 0 ] || /scripts/cmd video gop 3 $GOP_MAIN_HEVC > /dev/null

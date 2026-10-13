@@ -439,16 +439,42 @@ videoSpec:
   title: video config
   frameRate:
     title: frameRate
-    tooltip: Set the number of frames per second. (1-28FPS)
-  bitrateMainAVC:
-    title: Main bitrate
-    tooltip: Set the bitrate of Main HD. (300-2000bps)
-  bitrateMainHEVC:
-    title: MainHEVC bitrate
-    tooltip: Set the bitrate of Main H.265/HEVC HD. (300-2000bps)
-  bitrateSub:
-    title: Sub bitrate
-    tooltip: Set the bitrate of Sub 360p/320p. (100-500bps)
+    tooltip: "Frames per second of all streams (1-28). With the switch off the cam chooses by itself: 15 fps at night, 20 by day. Changing it restarts the encoders, so do it with no viewer connected; a running RTSP server can stall until the cam is rebooted."
+  note:
+    comment: "Noise reduction (Camera tab > Advanced, 2D-NR / 3D-NR) changes the bitrate more than any setting below: raise it before lowering a cap. For every setting here the switch off means 'keep the cam's own value'. The QP fields are a floor, not a sharpness dial: see their tooltips. Changes apply as soon as you save."
+  mainAVC:
+    title: Main stream (H.264)
+    bitrate:
+      title: Bitrate
+      tooltip: "Maximum bitrate of the Main H.264 stream (300-2000 kbps). The encoder aims for 75% of it and uses far less in calm scenes, so it only matters in busy ones. Default 960."
+    iqp:
+      title: Minimum QP
+      tooltip: "Lowest quantizer the Main H.264 encoder may use (20-45); it is a floor for every frame. Lower lets the encoder spend more bits where the scene needs them, and keyframes get bigger (about 80 kB at 32, 130 kB at 28 at night): big keyframes are what stutters on weak WiFi. Raising it shrinks every frame. The app uses 23; 30-32 is a good start."
+    gop:
+      title: Keyframe interval
+      tooltip: "Frames between Main H.264 keyframes (5-120). Shorter: the picture recovers sooner after a lost packet and clients start faster, at the cost of bitrate. The app uses 2.5 times the frame rate; the default here is 15."
+  mainHEVC:
+    title: Main stream (HEVC)
+    bitrate:
+      title: Bitrate
+      tooltip: "Maximum bitrate of the Main HEVC stream (300-2000 kbps). The encoder aims for 75% of it; calm scenes use far less (about 900 kbps in a static daylight scene). Raising it does not make keyframes bigger. A minimum QP of 20 runs into this cap."
+    iqp:
+      title: Minimum QP
+      tooltip: "Lowest quantizer the Main HEVC encoder may use (20-45); it is a floor for every frame, not a keyframe setting. Raising it shrinks everything (38 gave 55 kB keyframes against 125 kB at 30 in a calm daylight scene). Lowering it below what the rate control already picks barely changes the keyframes and mostly makes the P frames 4-8 times bigger (20 pins the bitrate at its cap and can stutter on weak WiFi). Keyframes top out at about 240 kB (about 220 kB in busy daylight). 28-30 is the useful range; the app uses 32."
+    gop:
+      title: Keyframe interval
+      tooltip: "Frames between Main HEVC keyframes (5-120). 30 = 1.5 s at 20 fps. Shorter recovers sooner after a lost packet, longer saves bitrate. The cam may report a value 20 higher at 20 fps; the setting itself is applied. The next client waits up to one interval for a keyframe before its picture starts."
+  sub:
+    title: Sub stream (HEVC 360p/320p)
+    bitrate:
+      title: Bitrate
+      tooltip: "Maximum bitrate of the Sub 360p/320p stream (100-500 kbps)."
+    iqp:
+      title: Minimum QP
+      tooltip: "Lowest quantizer of the Sub stream (20-45), a floor for every frame. Sub keyframes are small; leaving the switch off (app value 23) is fine. Untested."
+    gop:
+      title: Keyframe interval
+      tooltip: "Frames between Sub keyframes (5-120)."
 watermark:
     title: Logo
     image:
