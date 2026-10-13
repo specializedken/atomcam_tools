@@ -21,6 +21,7 @@ static int (*real_local_sdk_video_set_encode_frame_callback)(int ch, void *callb
 static int video0_encode_capture(struct frames_st *frames);
 static int video1_encode_capture(struct frames_st *frames);
 static int video2_encode_capture(struct frames_st *frames);
+static int video_encode_capture_inner(int ch, struct frames_st *frames);
 
 struct video_capture_st {
   framecb capture;
@@ -144,7 +145,58 @@ char *VideoCapture(int fd, char *p, char *tokenPtr) {
   return "error";
 }
 
+// Per channel counters, read with "video stats": how many frames arrive, how big the largest is, how long the
+// write + the app's own callback take (this runs in the encoder's stream thread) and how long the stream stalled.
+struct vstat_st {
+  unsigned long frames, bytes, slow, gaps;
+  unsigned int maxlen, maxms, maxgapms;
+  struct timeval last;
+};
+static struct vstat_st vstat[3];
+
+int video_stats_text(char *buf, size_t size) {
+
+  int n = 0;
+  for(int i = 0; i < 3; i++) {
+    struct vstat_st *v = &vstat[i];
+    n += snprintf(buf + n, size - n, "ch%d n=%lu max=%ukB cb=%ums slow=%lu gap=%ums gaps=%lu | ", i, v->frames, v->maxlen / 1024,
+                  v->maxms, v->slow, v->maxgapms, v->gaps);
+  }
+  return n;
+}
+
+void video_stats_reset(void) {
+
+  memset(vstat, 0, sizeof(vstat));
+}
+
 static int video_encode_capture(int ch, struct frames_st *frames) {
+
+  struct timeval t0, t1;
+  gettimeofday(&t0, NULL);
+  if((ch >= 0) && (ch < 3)) {
+    struct vstat_st *v = &vstat[ch];
+    if(v->last.tv_sec) {
+      unsigned int gap = (t0.tv_sec - v->last.tv_sec) * 1000 + (t0.tv_usec - v->last.tv_usec) / 1000;
+      if(gap > 150) v->gaps++;
+      if(gap > v->maxgapms) v->maxgapms = gap;
+    }
+    v->last = t0;
+    v->frames++;
+    v->bytes += frames->length;
+    if(frames->length > v->maxlen) v->maxlen = frames->length;
+  }
+  int res = video_encode_capture_inner(ch, frames);
+  if((ch >= 0) && (ch < 3)) {
+    gettimeofday(&t1, NULL);
+    unsigned int ms = (t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_usec - t0.tv_usec) / 1000;
+    if(ms > vstat[ch].maxms) vstat[ch].maxms = ms;
+    if(ms > 40) vstat[ch].slow++;
+  }
+  return res;
+}
+
+static int video_encode_capture_inner(int ch, struct frames_st *frames) {
 
   if((video_capture[ch].fd < 0) && video_capture[ch].enable) {
     int err;
