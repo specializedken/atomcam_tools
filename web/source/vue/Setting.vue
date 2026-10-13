@@ -85,8 +85,8 @@
           <SettingSlider i18n="AdvancedSettings.brightness" v-model="ISPSettings.bri" :min="0" :max="255" :defaultValue="128" :stemp="1" @input="ISPSet('bri')" />
           <SettingSlider i18n="AdvancedSettings.saturation" v-model="ISPSettings.sat" :min="0" :max="255" :defaultValue="128" :stemp="1" @input="ISPSet('sat')" />
           <SettingSlider i18n="AdvancedSettings.sharpness" v-model="ISPSettings.sharp" :min="0" :max="255" :defaultValue="128" :stemp="1" @input="ISPSet('sharp')" />
-          <SettingSlider i18n="AdvancedSettings.sinter" v-model="ISPSettings.sinter" :min="0" :max="255" :defaultValue="128" :stemp="1" @input="ISPSet('sinter')" />
-          <SettingSlider i18n="AdvancedSettings.temper" v-model="ISPSettings.temper" :min="0" :max="255" :defaultValue="128" :stemp="1" @input="ISPSet('temper')" />
+          <SettingSlider i18n="AdvancedSettings.sinter" v-model="ISPSettings.sinter" :min="0" :max="255" :defaultValue="112" :stemp="1" @input="ISPSet('sinter')" />
+          <SettingSlider i18n="AdvancedSettings.temper" v-model="ISPSettings.temper" :min="0" :max="255" :defaultValue="112" :stemp="1" @input="ISPSet('temper')" />
           <SettingSlider i18n="AdvancedSettings.dpc" v-model="ISPSettings.dpc" :min="0" :max="255" :defaultValue="128" :stemp="1" @input="ISPSet('dpc')" />
           <SettingSlider i18n="AdvancedSettings.drc" v-model="ISPSettings.drc" :min="0" :max="255" :defaultValue="128" :stemp="1" @input="ISPSet('drc')" />
           <SettingSlider i18n="AdvancedSettings.hilight" v-model="ISPSettings.hilight" :min="0" :max="10" :defaultValue="2" :stemp="1" @input="ISPSet('hilight')" />
@@ -336,9 +336,21 @@
 
           <h3 v-t="'videoSpec.title'" />
           <SettingInputNumber i18n="videoSpec.frameRate" :withSwitch="true" :defaultValue="20" :span="3" v-model="config.FRAMERATE" :min="1" :max="30" />
-          <SettingInputNumber i18n="videoSpec.bitrateMain" :withSwitch="true" :span="3" v-model="config.BITRATE_MAIN_AVC" :min="300" :max="2000" />
-          <SettingInputNumber v-if="distributor === 'ATOM'" i18n="videoSpec.bitrateMainHEVC" :withSwitch="true" :span="3" v-model="config.BITRATE_MAIN_HEVC" :min="300" :max="2000" />
-          <SettingInputNumber i18n="videoSpec.bitrateSub" :withSwitch="true" :span="3" v-model="config.BITRATE_SUB_HEVC" :min="100" :max="500" />
+          <SettingComment i18n="videoSpec.note" />
+          <h3 v-t="'videoSpec.mainAVC.title'" />
+          <SettingInputNumber i18n="videoSpec.mainAVC.bitrate" :withSwitch="true" :span="3" v-model="config.BITRATE_MAIN_AVC" :min="300" :max="2000" />
+          <SettingInputNumber i18n="videoSpec.mainAVC.iqp" :withSwitch="true" :span="3" v-model="config.IQP_MAIN_AVC" :min="20" :max="45" />
+          <SettingInputNumber i18n="videoSpec.mainAVC.gop" :withSwitch="true" :span="3" v-model="config.GOP_MAIN_AVC" :min="5" :max="120" />
+          <template v-if="distributor === 'ATOM'">
+            <h3 v-t="'videoSpec.mainHEVC.title'" />
+            <SettingInputNumber i18n="videoSpec.mainHEVC.bitrate" :withSwitch="true" :span="3" v-model="config.BITRATE_MAIN_HEVC" :min="300" :max="2000" />
+            <SettingInputNumber i18n="videoSpec.mainHEVC.iqp" :withSwitch="true" :span="3" v-model="config.IQP_MAIN_HEVC" :min="20" :max="45" />
+            <SettingInputNumber i18n="videoSpec.mainHEVC.gop" :withSwitch="true" :span="3" v-model="config.GOP_MAIN_HEVC" :min="5" :max="120" />
+          </template>
+          <h3 v-t="'videoSpec.sub.title'" />
+          <SettingInputNumber i18n="videoSpec.sub.bitrate" :withSwitch="true" :span="3" v-model="config.BITRATE_SUB_HEVC" :min="100" :max="500" />
+          <SettingInputNumber i18n="videoSpec.sub.iqp" :withSwitch="true" :span="3" v-model="config.IQP_SUB_HEVC" :min="20" :max="45" />
+          <SettingInputNumber i18n="videoSpec.sub.gop" :withSwitch="true" :span="3" v-model="config.GOP_SUB_HEVC" :min="5" :max="120" />
           <h3 v-t="'watermark.title'" />
           <SettingComment i18n="watermark.image">
             <div class="watermark-drop-area" :class="[{'is-drag': isDrag }]" @dragover.prevent="isDrag=true" @dragleave.prevent="isDrag=false" @drop.prevent="UploadPNG">
@@ -523,6 +535,12 @@
           BITRATE_MAIN_AVC: 960,   // ch0 H264 HD   Record/Alarm, RTSP AVC Main
           BITRATE_SUB_HEVC: -180,  // ch1 H265 360p MobileApp,    RTSP HEVC Sub
           BITRATE_MAIN_HEVC: -800, // ch3 H265 HD   MobileApp,    RTSP HEVC Main
+          IQP_MAIN_AVC: 32,        // min QP, ch0 (app default 23)
+          IQP_SUB_HEVC: -32,       // min QP, ch1 (app default 23, untested)
+          IQP_MAIN_HEVC: 30,       // min QP, ch3 (app default 32)
+          GOP_MAIN_AVC: 15,        // keyframe interval in frames (the app uses the frame rate = 1 s)
+          GOP_SUB_HEVC: -15,
+          GOP_MAIN_HEVC: 30,
         },
         property: {},
         ISPSettings: {
@@ -530,8 +548,8 @@
           bri: 128,
           sat: 128,
           sharp: 128,
-          sinter: 128,
-          temper: 128,
+          sinter: 112,
+          temper: 112,
           dpc: 128,
           drc: 128,
           hilight: 2,
@@ -1392,6 +1410,12 @@
         if(parseInt(this.config.BITRATE_MAIN_HEVC) !== parseInt(this.oldConfig.BITRATE_MAIN_HEVC)) {
           execCmds.push(`bitrate 3 ${this.config.BITRATE_MAIN_HEVC < 0 ? 'auto' : this.config.BITRATE_MAIN_HEVC}`);
         }
+        [['IQP_MAIN_AVC', 'iqp 0'], ['IQP_SUB_HEVC', 'iqp 1'], ['IQP_MAIN_HEVC', 'iqp 3'],
+         ['GOP_MAIN_AVC', 'gop 0'], ['GOP_SUB_HEVC', 'gop 1'], ['GOP_MAIN_HEVC', 'gop 3']].forEach(([key, cmd]) => {
+          if(parseInt(this.config[key]) !== parseInt(this.oldConfig[key])) {
+            execCmds.push(`${cmd} ${this.config[key] < 0 ? 'auto' : this.config[key]}`);
+          }
+        });
         if(parseInt(this.config.PERIODICREC_SKIP_JPEG) !== parseInt(this.oldConfig.PERIODICREC_SKIP_JPEG)) {
           execCmds.push(`skipRecJpeg ${this.config.PERIODICREC_SKIP_JPEG}`);
         }

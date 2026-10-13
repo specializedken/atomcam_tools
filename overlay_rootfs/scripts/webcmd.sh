@@ -58,6 +58,11 @@ do
     echo "$cmd $params $res" >> /var/run/webres
     cmd=""
   fi
+  if [ "$cmd" = "iqp" ] || [ "$cmd" = "gop" ]; then
+    res=`/scripts/cmd video ${cmd} ${params}`
+    echo "$cmd $params $res" >> /var/run/webres
+    cmd=""
+  fi
   if [ "$cmd" = "alarm" ]; then
     res=`/scripts/cmd alarm ${params}`
     echo "$cmd $params $res" >> /var/run/webres
