@@ -461,6 +461,15 @@ video dgain 0 -
 video expr manual|auto <time>
 video bitrate <ch> 10-3000(kbps)|auto
 video fps <ch> 1-30(fps)|auto
+video iqp <ch 0|1|3> [10-51|auto]
+video gop <ch 0|1|3> [1-300|auto]
+video rc <ch 0|1|3> [<field> [<value>|auto]]
+video encdump <ch 0-3> attr|rc|gop [<first word>]
+video encrc <ch> [<word 0-8> <value> ...]
+video encgop <ch> [<length>]
+video streambuf <imp ch 0-2> [<kB>|auto]
+video streamcnt <imp ch 0-2> [<n>|auto]
+video stats [reset]
 ```
 
 videoの各種パラメータ設定。よくわからないものもある。
@@ -486,6 +495,20 @@ video dpc,drc,hilight,again, dgainこのあたりもよくわからない。
 video exprは露出設定のauto/manualの切り替えだけど、manualだと安定しない。
 
 video bitrate, fpsはH264/H265のvbrのbitrateとフレームレート設定。
+
+チャンネル番号は、`bitrate` `iqp` `gop` `rc`ではSDKの番号(0=Main H.264, 1=Sub HEVC, 3=Main HEVC)、`encdump` `encrc` `encgop` `streambuf` `streamcnt`ではlibimpの番号(0=Main H.264, 1=Sub HEVC, 2=Main HEVC)です。
+
+video iqpは最小QP(レート制御構造体のword 3の上位16bit)の設定。全フレームの下限であり、キーフレームだけの設定ではない。アプリがビットレートやフレームレートを設定し直すたびに再適用される。
+
+video gopはキーフレーム間隔(フレーム数)の設定。アプリがフレームレートから決める値(2.5倍)を上書きする。20fpsでは読み出し値が20大きくなることがある。
+
+video rcはレート制御の残りの項目の設定。項目は`initqp` `maxqp` `ipdelta` `pbdelta` `options` `maxpic`(kbit) `maxpsnr`(dB)。項目を省略すると現在値を表示し、ユーザー指定のものには`*`が付く。`ipdelta` `maxpic` `maxpsnr`などは稼働中のエンコーダには反映されず、エンコーダ作成時(`IMP_Encoder_CreateChn`のフック)に反映される。hack.iniの`<項目>_<MAIN_AVC|SUB_HEVC|MAIN_HEVC>`キーでも指定できる。レート制御構造体(9ワード、モード4と8)の意味は`tools/encbench/README.md`の「rc struct」を参照。
+
+video encdump, encrc, encgopはエンコーダの属性・レート制御・GOPの読み書き(調査用)。encrcは稼働中のエンコーダのレート制御構造体を直接書き換える。
+
+video streambuf, streamcntはエンコーダのストリームバッファの大きさと個数(エンコーダ作成時に反映される)。
+
+video statsはチャンネルごとのフレーム数、最大フレームサイズ、コールバック時間、停止回数の統計(resetで0に戻す)。
 
 ##### hook point
 
