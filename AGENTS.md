@@ -591,3 +591,29 @@ Left in the tree on purpose, candidates to remove before a PR (needs a rebuild +
 - The `set_icamera_config.sh` / UI key names still say `IQP`; renaming to `MINQP_*` would need a hack.ini migration, so it stays unless upstream asks.
 
 Not yet flashed anywhere: v19 (UI iqp/gop live apply). Kitchen runs v18, garage v16.
+
+## PR branches cut (2026-10-13, local only, nothing pushed)
+
+`main` (= upstream Ver.2.5.19, `313048b`) is the base of all three; verified in throwaway worktrees that A and B apply to plain `main`, that #146 merges with A + B without conflicts, and that B compiles with the firmware toolchain.
+
+| branch | base | content | size |
+|---|---|---|---|
+| `pr/rtsp-robustness` (A) | `main` | live555 512 KB send buffer patch + `wmem_max` in `rtspserver.sh`; per-client wait-for-IRAP patch; `rtspserver.sh` capture watchdog | 3 commits, 3 files, +148 |
+| `pr/encoder-knobs` (B) | `main` | `video iqp/gop/rc/stats/streambuf/streamcnt/encdump/encrc/encgop` + hack.ini keys; per-stream video UI + `webcmd.sh` handlers; README/hook docs | 3 commits, 9 files, +776 |
+| PR #146 (`onvif-ptz-118` / `onvif-on-118-presets`) | `main` | ONVIF + PTZ, unchanged | 16 commits |
+| `integration` | `onvif-on-118-presets` | #146 + A + B + fork-only `AGENTS.md` / `tools/encbench` | what the cams should be built from from now on |
+| `encoder-tuning` | `onvif-on-118-presets` (older, 7534732) | the original 46-commit working history | kept as the record; do not PR |
+
+- A and B are independent of each other and of #146. Only the docs/UI files overlap with #146 (`README.md`, `Setting.vue`, both i18n files, `webcmd.sh`, `libcallback_hook.md`) and they auto-merge; whichever PR merges second needs a README look.
+- Dropped on purpose from A/B/integration: the `LD_PRELOAD sndbuf.so` branch in `rtspserver.sh` (redundant since the live555 patch), the v4l2loopback `max_buffers=8` + 640x360 trick (measured: no effect on the stalls),
+  the useless `local_sdk_video_set_gop` hook and the interposer commits (squashed into the final behaviour), `tools/encbench/__pycache__/*.pyc` (was committed by mistake).
+  `integration` vs `encoder-tuning` differs only by those drops and by #146's README ONVIF section.
+- Image builds: cut the next image (v20) from `integration`; it will not contain the shim or the loopback tweak (both measured as unnecessary, but not re-tested on a cam).
+- **Gotcha:** `encoder-tuning` forks from #146's branch BEFORE its README docs commit, so a diff against `onvif-on-118-presets` shows the ONVIF README sections as removed; ignore those when cutting patches.
+
+### Is a send buffer above 512 KB worth it? No (measured/derived on kitchen, 2026-10-13)
+
+- `SO_SNDBUF` is clamped to `net.core.wmem_max` (1 MB set by `rtspserver.sh`) and the kernel then doubles it: a 512 KB request is an effective **~1 MB** send buffer per client.
+- The largest frame the encoder will emit is bounded by the max picture size (1920 kbit = 240 kB); measured peaks 170-222 kB. So there is ~4x headroom; the 17 kB peak send queue seen in 100 samples (one client) is a floor, not a peak, because a keyframe burst drains in milliseconds.
+- Costs of going higher: RAM is the scarce resource (MemFree ~5 MB, 32 MB cache) and a stalled client (Wi-Fi drop) can pin up to the full buffer per connection; at 2 Mbps a 1 MB queue is 4 s of stale video.
+- If anything, the request could go DOWN (256 KB request = 512 KB effective, still >2x the largest keyframe) to leave RAM headroom; no evidence of a need, so left as is.
