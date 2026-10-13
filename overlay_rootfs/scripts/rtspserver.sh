@@ -76,6 +76,9 @@ if ! pidof v4l2rtspserver > /dev/null ; then
     [ "$RTSP_VIDEO0" = "on" ] && path="/dev/video0,hw:0,0@$RTSP_AUDIO0 "
     [ "$RTSP_VIDEO1" = "on" ] && path="$path /dev/video1,hw:2,0@$RTSP_AUDIO1 "
     [ "$RTSP_VIDEO2" = "on" ] && path="$path /dev/video2,hw:4,0@$RTSP_AUDIO2 "
+    # live555 asks for 512 KB per RTSP client socket (custompackages/package/live555/20_client_sndbuf.patch); the kernel
+    # clamps that to net.core.wmem_max (default ~200 KB), which a 200 kB keyframe burst would not fit into.
+    echo 1048576 > /proc/sys/net/core/wmem_max
     /usr/bin/v4l2rtspserver $option -C 1 -a S16_LE $path >> /tmp/log/rtspserver.log 2>&1 &
   fi
   while [ "`pidof v4l2rtspserver`" = "" ]; do
