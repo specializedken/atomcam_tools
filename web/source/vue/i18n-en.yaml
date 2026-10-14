@@ -442,12 +442,6 @@ videoSpec:
     tooltip: "Frames per second of all streams (1-28). With the switch off the cam chooses by itself: 15 fps at night, 20 by day. Changing it restarts the encoders, so do it with no viewer connected; a running RTSP server can stall until the cam is rebooted."
   note:
     comment: "Noise reduction (Camera tab > Advanced, 2D-NR / 3D-NR) changes the bitrate more than any setting below: raise it before lowering a cap. For every setting here the switch off means 'keep the cam's own value'. The QP fields are a floor, not a sharpness dial: see their tooltips. Changes apply as soon as you save."
-  auto: app value
-  user: set
-  live:
-    title: Running now
-    comment: "(read from the camera)"
-  liveLine: "{name}: minimum QP {qp} ({qpMode}), keyframe every {sec} s = {frames} frames at {fps} fps ({gopMode})"
   mainAVC:
     title: Main stream (H.264)
     bitrate:
@@ -458,7 +452,7 @@ videoSpec:
       tooltip: "Lowest quantizer the Main H.264 encoder may use (20-45); it is a floor for every frame. Lower lets the encoder spend more bits where the scene needs them, and keyframes get bigger (about 80 kB at 32, 130 kB at 28 at night): big keyframes are what stutters on weak WiFi. Raising it shrinks every frame. The app uses 23; 30-32 is a good start."
     gop:
       title: Keyframe interval
-      tooltip: "Seconds between Main H.264 keyframes (1-10). The cam only makes keyframes at whole seconds and derives the frame count from its frame rate (15 fps at night, 20 by day), so every value here is valid. Shorter: the picture recovers sooner after a lost packet and clients start faster, at the cost of bitrate. Switch off = the app's own value. Default 1."
+      tooltip: "Seconds between Main H.264 keyframes (1-10). The cam only makes keyframes at whole seconds and derives the frame count from its frame rate (15 fps at night, 20 by day), so every value here is valid. Shorter: the picture recovers sooner after a lost packet and clients start faster, at the cost of bitrate. Switch off = the app's own value. Default 1. Read back on the cam with video gop <ch> (shows the frame count it is running)."
   mainHEVC:
     title: Main stream (HEVC)
     bitrate:
@@ -469,7 +463,7 @@ videoSpec:
       tooltip: "Lowest quantizer the Main HEVC encoder may use (20-45); it is a floor for every frame, not a keyframe setting. Raising it shrinks everything (38 gave 55 kB keyframes against 125 kB at 30 in a calm daylight scene). Lowering it below what the rate control already picks barely changes the keyframes and mostly makes the P frames 4-8 times bigger (20 pins the bitrate at its cap and can stutter on weak WiFi). Keyframes top out at about 240 kB (about 220 kB in busy daylight). 28-30 is the useful range; the app uses 32."
     gop:
       title: Keyframe interval
-      tooltip: "Seconds between Main HEVC keyframes (1-10). The cam only makes keyframes at whole seconds and derives the frame count from its frame rate (15 fps at night, 20 by day), so every value here is valid. Shorter recovers sooner after a lost packet, longer saves bitrate. A new RTSP client waits up to one interval for a keyframe before its picture starts. Default 2."
+      tooltip: "Seconds between Main HEVC keyframes (1-10). The cam only makes keyframes at whole seconds and derives the frame count from its frame rate (15 fps at night, 20 by day), so every value here is valid. Shorter recovers sooner after a lost packet, longer saves bitrate. A new RTSP client waits up to one interval for a keyframe before its picture starts. Default 2. Read back on the cam with video gop <ch> (shows the frame count it is running)."
   sub:
     title: Sub stream (HEVC 360p/320p)
     bitrate:

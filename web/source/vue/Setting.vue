@@ -347,11 +347,6 @@
           <h3 v-t="'videoSpec.title'" />
           <SettingInputNumber i18n="videoSpec.frameRate" :withSwitch="true" :defaultValue="20" :span="3" v-model="config.FRAMERATE" :min="1" :max="30" />
           <SettingComment i18n="videoSpec.note" />
-          <SettingComment v-if="liveVideo.length" i18n="videoSpec.live">
-            <div v-for="line in liveVideo" :key="line">
-              {{ line }}
-            </div>
-          </SettingComment>
           <h3 v-t="'videoSpec.mainAVC.title'" />
           <SettingInputNumber i18n="videoSpec.mainAVC.bitrate" :withSwitch="true" :span="3" v-model="config.BITRATE_MAIN_AVC" :min="300" :max="2000" />
           <SettingInputNumber i18n="videoSpec.mainAVC.iqp" :withSwitch="true" :span="3" v-model="config.IQP_MAIN_AVC" :min="20" :max="45" />
@@ -459,7 +454,6 @@
     },
     data() {
       return {
-        liveVideo: [],
         config: {
           CONFIG_VER: '1.0.1',
           appver: '', // ATOMCam app_ver (/atom/config/app.ver)
@@ -953,7 +947,6 @@
         }
       }, 1000);
       this.StillImageInterval();
-      this.LoadLiveVideo();
       this.CheckHomeKit();
       window.addEventListener('resize', this.ResizeEvent.bind(this));
     },
@@ -1525,10 +1518,6 @@
             for(const cmd of execCmds) {
               await this.Exec(cmd);
             }
-            if(execCmds.some(cmd => /^(framerate|bitrate|iqp|gop) /.test(cmd))) {
-              await new Promise(resolve => setTimeout(resolve, 1500));
-              await this.LoadLiveVideo();
-            }
             if(this.progress < 0) {
               if(execCmds.indexOf('lighttpd') >= 0) {
                 setTimeout(() => this.drawerVisible = false, 3000);
@@ -1540,24 +1529,6 @@
           });
         }
         this.CheckHomeKit();
-      },
-      // What the encoders are really running (read from the cam), as opposed to what the fields below hold.
-      async LoadLiveVideo() {
-        const ask = async cmd => String((await this.Exec(cmd, 'socket'))?.data ?? '').replace(/\0/g, '').trim();
-        const lines = [];
-        const streams = [[0, 'videoSpec.mainAVC.title']];
-        if(this.distributor === 'ATOM') streams.push([3, 'videoSpec.mainHEVC.title']);
-        streams.push([1, 'videoSpec.sub.title']);
-        for(const [ch, title] of streams) {
-          const qp = (await ask(`video iqp ${ch}`)).match(/^(user|auto) (\d+)/);
-          const gop = (await ask(`video gop ${ch}`)).match(/^(user|auto) (\d+) s (\d+) frames at (\d+) fps/);
-          if(!qp || !gop) continue;
-          lines.push(this.$t('videoSpec.liveLine', {
-            name: this.$t(title), qp: qp[2], qpMode: this.$t(`videoSpec.${qp[1]}`),
-            sec: gop[2], frames: gop[3], fps: gop[4], gopMode: this.$t(`videoSpec.${gop[1]}`),
-          }));
-        }
-        this.liveVideo = lines;
       },
       async Exec(cmd, port) {
         return await axios.post(`./cgi-bin/cmd.cgi?port=${port}`, { exec: cmd }).catch(err => {
