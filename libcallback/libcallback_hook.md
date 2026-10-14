@@ -502,7 +502,7 @@ video iqpは最小QP(レート制御構造体のword 3の上位16bit)の設定�
 
 video gopはキーフレーム間隔を整数秒(1-10)で設定する。エンコーダは整数秒ごとにしかキーフレームを作らない(フレーム数がfpsの倍数でない値は、読み出し値がfps分大きくなり、ceil(値/fps)+1秒で動作する)ため、フレーム数はその時のフレームレートから計算し、フレームレートが変わる(夜間15fps/昼間20fps)たびに再計算する。アプリがフレームレートから決める値(2.5倍)を上書きする。値なしで読み出すと`user|auto <秒> s <フレーム数> frames at <fps> fps`を返す。hack.iniのキーは`GOP_SEC_MAIN_AVC` `GOP_SEC_SUB_HEVC` `GOP_SEC_MAIN_HEVC`で、エンコーダ生成時に読み込む。最小QP(`IQP_*`)も同様に生成時に読み込み、数秒おきにエンコーダの値を確認して設定値に戻す。
 
-video rcはレート制御の残りの項目の設定。項目は`initqp` `maxqp` `ipdelta` `pbdelta` `options` `maxpic`(kbit) `maxpsnr`(dB)。項目を省略すると現在値を表示し、ユーザー指定のものには`*`が付く。`ipdelta` `maxpic` `maxpsnr`などは稼働中のエンコーダには反映されず、エンコーダ作成時(`IMP_Encoder_CreateChn`のフック)に反映される。hack.iniの`<項目>_<MAIN_AVC|SUB_HEVC|MAIN_HEVC>`キーでも指定できる。レート制御構造体(9ワード、モード4と8)の意味は`tools/encbench/README.md`の「rc struct」を参照。
+video rcはレート制御の残りの項目の設定。項目は`initqp` `maxqp` `ipdelta` `pbdelta` `options` `maxpic`(kbit) `maxpsnr`(dB)。項目を省略すると現在値を表示し、ユーザー指定のものには`*`が付く。`ipdelta` `maxpic` `maxpsnr`などは稼働中のエンコーダには反映されず、エンコーダ作成時(`IMP_Encoder_CreateChn`のフック)に反映される。hack.iniの`<項目>_<MAIN_AVC|SUB_HEVC|MAIN_HEVC>`キーでも指定できる。レート制御構造体(9ワード、モード4と8)の意味は下の「rc struct」を参照。
 
 video encdump, encrc, encgopはエンコーダの属性・レート制御・GOPの読み書き(調査用)。encrcは稼働中のエンコーダのレート制御構造体を直接書き換える。
 
@@ -620,4 +620,26 @@ void ProtocolSetProperty(char * buf1, char *req, char *res);
 ```
 
 と定義して、req, resのjson文字列でアクセスしてAPIを呼び出している。
+
+### rc struct
+
+`IMP_Encoder_GetChnAttrRcMode` / `SetChnAttrRcMode`が扱う9ワードの意味です(カメラの`libimp.so`を逆アセンブルして確認)。モードは 0=固定QP, 1=CBR, 2=VBR, 4と8=同じ変換(上限付き。アプリは全チャンネルで8を使用)で、3/5/6/7は拒否されます。モード4/8:
+
+| ワード | 内容 | アプリの値 | 備考 |
+|---|---|---|---|
+| 0 | モード | 8 | |
+| 1 | 目標ビットレート kbps | 上限の0.75倍 | |
+| 2 | 上限ビットレート kbps | | `video bitrate`で設定 |
+| 3 下位 | 初期QP | -1(自動) | `video rc initqp` |
+| 3 上位 | **最小QP** | AVC 23 / HEVC 32 | `video iqp`。全フレームの下限で、キーフレーム専用のQPではない |
+| 4 下位 | 最大QP | 51 | `maxqp` |
+| 4 上位 | I/PのQP差 | -1(自動) | `ipdelta`。キーフレームを大きくする(AVCで3→10: 115→193kB) |
+| 5 下位 | P/BのQP差 | -1(自動) | `pbdelta` |
+| 6 | オプション(ビットマスク) | 1 | `options` |
+| 7 | 最大ピクチャサイズ kbit | 1920(1080p) / 640(sub) | `maxpic`。libimpが解像度に応じた下限(1080pで1352kbit、360pで624kbit)に引き上げる。ビットレートには依存しない |
+| 8 下位 | 最大PSNR dB | 48 | `maxpsnr` |
+
+- ワード7・8とI/P差は、**動作中のチャンネルに書いても効果がありません**(エンコーダ作成時のみ有効)。hack.iniのキーを`IMP_Encoder_CreateChn`のフックで反映するのはこのためです。実行中に効くのはビットレートとQP範囲です。
+- 最小QPを30→26→20と下げても、レート制御が既に選んでいる値より小さい範囲ではキーフレームは変わらず、Pフレームが4-8倍になります。38に上げるとキーフレームは約55kBになります。
+- CBR(モード1)は1ワードずれた配置(w1=ビットレート, w2=初期/最小QP, w3=最大QPとI/P差, w4=P/B差, w5=オプション, w6=最大ピクチャ)です。実機では未使用です。
 
