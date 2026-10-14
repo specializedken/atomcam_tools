@@ -646,3 +646,5 @@ Not yet flashed anywhere: v19 (UI iqp/gop live apply). Kitchen runs v18, garage 
   the seconds-based keyframe interval (`f52ff80`, `cb9fe8b`). Do not push other branches or open B without being asked.
 - **PR B opened: [mnakada/atomcam_tools#148](https://github.com/mnakada/atomcam_tools/pull/148)** (`specializedken:pr/encoder-knobs` -> `main`, 6 commits incl. seconds-based keyframe interval and the self-contained rc-struct doc;
   README/hook docs no longer point at `tools/encbench`). Offered in the body to drop `encdump|encrc|encgop` if the maintainer prefers.
+- **PR B (#148) was closed by the user's request right after opening (opened by mistake).** Only A (#147) is meant to be upstream for now. `pr/encoder-knobs` still exists on origin; do not reopen or
+  re-push B unless explicitly asked.
