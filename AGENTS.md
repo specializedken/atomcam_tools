@@ -644,3 +644,5 @@ Not yet flashed anywhere: v19 (UI iqp/gop live apply). Kitchen runs v18, garage 
 - Known leftovers: `video stats` prints the first `gap` as an unsigned underflow (4294967262 ms); a keeper thread now enforces min QP / keyframe interval every 5 s.
 - **PR A opened: [mnakada/atomcam_tools#147](https://github.com/mnakada/atomcam_tools/pull/147)** (`specializedken:pr/rtsp-robustness` -> `main`, 3 commits). `pr/encoder-knobs` (B) is not pushed; it now also carries
   the seconds-based keyframe interval (`f52ff80`, `cb9fe8b`). Do not push other branches or open B without being asked.
+- **PR B opened: [mnakada/atomcam_tools#148](https://github.com/mnakada/atomcam_tools/pull/148)** (`specializedken:pr/encoder-knobs` -> `main`, 6 commits incl. seconds-based keyframe interval and the self-contained rc-struct doc;
+  README/hook docs no longer point at `tools/encbench`). Offered in the body to drop `encdump|encrc|encgop` if the maintainer prefers.
