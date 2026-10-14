@@ -192,7 +192,7 @@ static struct CommandTableSt VideoCommandTable[] = {
   { "streamcnt", &StreamCnt }, // streamcnt <imp ch 0-2> [<n>|auto]
   { "stats",     &Stats }, // stats [reset]   frames / largest frame / callback time / stalls per channel
   { "iqp",       &Iqp }, // iqp <ch 0|1|3> [<min QP 10-51>|auto]   (the floor of every frame; see "rc struct" in tools/encbench/README.md)
-  { "gop",       &Gop }, // gop <ch 0|1|3> [<keyframe interval in frames 1-300>|auto]
+  { "gop",       &Gop }, // gop <ch 0|1|3> [<keyframe interval in seconds 1-10>|auto]
   { "rc",        &Rc }, // rc <ch 0|1|3> [<field> [<value>|auto]]   initqp maxqp ipdelta pbdelta options maxpic maxpsnr
 };
 
@@ -207,9 +207,12 @@ int VideoControl_AppFps = 25;
 static int userBitrate[4] = { 0, 0, 0, 0 };
 static int appBitrate[4] = { 960, 180, 0, 800 };
 
-// User overrides of the minimum QP ("iqp") and the keyframe interval, indexed by the local SDK channel (0, 1, 3).
-// 0 = leave what the app / SDK sets. They are re-applied whenever the app (re)creates a channel or sets a bitrate,
-// because both rewrite the encoder's rate control.
+// User overrides of the minimum QP ("iqp", QP value) and the keyframe interval ("gop", whole SECONDS), indexed by the
+// local SDK channel (0, 1, 3). 0 = leave what the app / SDK sets. They are re-applied whenever the app (re)creates a
+// channel or sets a bitrate / frame rate (those rewrite the encoder's parameters) and by a slow keeper thread.
+// The interval is kept in seconds because the encoder only produces keyframes at whole seconds (measured: lengths that
+// are not a multiple of the frame rate read back +fps and run at ceil(len / fps) + 1 s), and the frame rate flips by
+// itself between 15 and 20 with the daylight, so the frame count is derived from the live frame rate each time.
 static int userIqp[4] = { 0, 0, 0, 0 };
 static int userGop[4] = { 0, 0, 0, 0 };
 
@@ -339,6 +342,24 @@ static void apply_rc(int ch) {
 
 // "iqp" is the high 16 bits of word 3 of the rate control struct. libimp hands it to the encoder as the MIN QP of the
 // capped modes (the floor of every frame, I and P; see "rc struct" in tools/encbench/README.md). It is NOT a keyframe QP.
+// Frame rate the encoder channel is running at (rounded), the app's last value if it cannot be read.
+static int encoder_fps(int impCh) {
+
+  struct IMPEncoderFrmRate frm;
+  memset(&frm, 0, sizeof(frm));
+  if(!IMP_Encoder_GetChnFrmRate(impCh, &frm) && (frm.frmRateNum > 0) && (frm.frmRateDen > 0)) {
+    return (frm.frmRateNum + frm.frmRateDen / 2) / frm.frmRateDen;
+  }
+  return (VideoControl_AppFps > 0) ? VideoControl_AppFps : 15;
+}
+
+static int gop_frames(int ch) {
+
+  int n = userGop[ch] * encoder_fps(imp_channel(ch));
+  return (n > 300) ? 300 : n;
+}
+
+// Both appliers only write when the encoder differs, so they are cheap enough for the keeper thread.
 static void apply_iqp(int ch) {
 
   if(!userIqp[ch]) return;
@@ -346,6 +367,7 @@ static void apply_iqp(int ch) {
   memset(rc, 0, sizeof(rc));
   int impCh = imp_channel(ch);
   if(IMP_Encoder_GetChnAttrRcMode(impCh, rc)) return;
+  if((rc[3] >> 16) == (unsigned int)userIqp[ch]) return;
   rc[3] = ((unsigned int)userIqp[ch] << 16) | (rc[3] & 0xffff);
   int ret = IMP_Encoder_SetChnAttrRcMode(impCh, rc);
   fprintf(stderr, "video iqp ch%d: %d (%d)\n", ch, userIqp[ch], ret);
@@ -359,9 +381,27 @@ static void apply_gop(int ch) {
   struct IMPEncoderGopAttr *g = (struct IMPEncoderGopAttr *)buf;
   int impCh = imp_channel(ch);
   if(IMP_Encoder_GetChnGopAttr(impCh, g)) return;
-  g->uGopLength = userGop[ch];
+  int frames = gop_frames(ch);
+  if(g->uGopLength == frames) return;
+  g->uGopLength = frames;
   int ret = IMP_Encoder_SetChnGopAttr(impCh, g);
-  fprintf(stderr, "video gop ch%d: %d (%d)\n", ch, userGop[ch], ret);
+  fprintf(stderr, "video gop ch%d: %d s = %d frames (%d)\n", ch, userGop[ch], frames, ret);
+}
+
+// The app (re)configures the encoders at its own pace (boot, daylight frame rate flips, network changes) and some of it
+// is not observable from here, so the settings are also checked every few seconds: the cam always ends up in the state
+// hack.ini / the UI describes.
+static void *keeper_thread(void *arg) {
+
+  static const int sdkChannels[3] = { 0, 1, 3 };
+  for(;;) {
+    sleep(5);
+    for(int i = 0; i < 3; i++) {
+      apply_iqp(sdkChannels[i]);
+      apply_gop(sdkChannels[i]);
+    }
+  }
+  return NULL;
 }
 
 static void __attribute ((constructor)) video_control_init(void) {
@@ -370,6 +410,15 @@ static void __attribute ((constructor)) video_control_init(void) {
   real_local_sdk_video_set_fps = dlsym(dlopen ("/system/lib/liblocalsdk.so", RTLD_LAZY), "local_sdk_video_set_fps");
   real_local_sdk_video_set_gop = dlsym(dlopen ("/system/lib/liblocalsdk.so", RTLD_LAZY), "local_sdk_video_set_gop");
   real_IMP_Encoder_CreateChn = dlsym(dlopen ("/system/lib/libimp.so", RTLD_LAZY), "IMP_Encoder_CreateChn");
+}
+
+static void start_keeper(void) {
+
+  static int started = 0;
+  if(started) return;
+  started = 1;
+  pthread_t th;
+  if(!pthread_create(&th, NULL, keeper_thread, NULL)) pthread_detach(th);
 }
 
 char *VideoCommand(int fd, char *tokenPtr) {
@@ -407,8 +456,9 @@ int local_sdk_video_set_kbps(int ch, int kbps) {
 int local_sdk_video_set_gop(int ch, int gop) {
 
   if(((ch == 0) || (ch == 1) || (ch == 3)) && userGop[ch]) {
-    fprintf(stderr, "video_set_gop ch%d: %d -> %d\n", ch, gop, userGop[ch]);
-    gop = userGop[ch];
+    int frames = gop_frames(ch);
+    fprintf(stderr, "video_set_gop ch%d: %d -> %d\n", ch, gop, frames);
+    gop = frames;
   }
   return real_local_sdk_video_set_gop(ch, gop);
 }
@@ -470,6 +520,18 @@ int IMP_Encoder_CreateChn(int ch, unsigned char *attr) {
     unsigned int *rcAttr = (unsigned int *)(attr + 44);
     int n = rc_apply_words(ch, rcAttr);
     if(n) fprintf(stderr, "video rc ch%d: %d field(s) set in CreateChn (mode %u)\n", ch, n, rcAttr[0]);
+  }
+
+  // minimum QP and keyframe interval from hack.ini, so the encoder starts in the configured state whatever order the
+  // boot scripts run in (a value set with "video iqp|gop" wins)
+  if((ch >= 0) && (ch <= 2)) {
+    static const char *iqpKeys[3] = { "IQP_MAIN_AVC", "IQP_SUB_HEVC", "IQP_MAIN_HEVC" };
+    static const char *gopKeys[3] = { "GOP_SEC_MAIN_AVC", "GOP_SEC_SUB_HEVC", "GOP_SEC_MAIN_HEVC" };
+    int sc = sdk_channel(ch);
+    int v;
+    if(!userIqp[sc] && ini_has(iqpKeys[ch], &v) && (v >= 10) && (v <= 51)) userIqp[sc] = v;
+    if(!userGop[sc] && ini_has(gopKeys[ch], &v) && (v >= 1) && (v <= 10)) userGop[sc] = v;
+    start_keeper();
   }
 
   struct IMPEncoderGopAttr *gopAttr = (struct IMPEncoderGopAttr *)(attr + 88);
@@ -971,11 +1033,14 @@ static char *Iqp(char *tokenPtr) {
   int qp = atoi(p);
   if((qp < 10) || (qp > 51)) return "error";
   userIqp[ch] = qp;
+  start_keeper();
   apply_iqp(ch);
   return "ok";
 }
 
-// gop <ch> [<frames>|auto]: keyframe interval of a channel in frames (the app uses one second).
+// gop <ch> [<seconds 1-10>|auto]: keyframe interval of a channel in whole seconds. The encoder only produces keyframes at
+// whole seconds; the frame count is derived from the live frame rate (see userGop). Without a value: "user|auto <s> s
+// <frames> frames" with the frame count the encoder actually holds.
 static char *Gop(char *tokenPtr) {
 
   char *p = strtok_r(NULL, " \t\r\n", &tokenPtr);
@@ -988,16 +1053,19 @@ static char *Gop(char *tokenPtr) {
     memset(buf, 0, sizeof(buf));
     struct IMPEncoderGopAttr *g = (struct IMPEncoderGopAttr *)buf;
     if(IMP_Encoder_GetChnGopAttr(imp_channel(ch), g)) return "error";
-    sprintf(CommandResBuf, "%s %d\n", userGop[ch] ? "user" : "auto", g->uGopLength);
+    int fps = encoder_fps(imp_channel(ch));
+    sprintf(CommandResBuf, "%s %d s %d frames at %d fps\n", userGop[ch] ? "user" : "auto",
+            userGop[ch] ? userGop[ch] : (g->uGopLength + fps / 2) / fps, g->uGopLength, fps);
     return CommandResBuf;
   }
   if(!strcasecmp(p, "auto")) {
     userGop[ch] = 0;
     return "ok";
   }
-  int len = atoi(p);
-  if((len < 1) || (len > 300)) return "error";
-  userGop[ch] = len;
+  int sec = atoi(p);
+  if((sec < 1) || (sec > 10)) return "error";
+  userGop[ch] = sec;
+  start_keeper();
   apply_gop(ch);
   return "ok";
 }
