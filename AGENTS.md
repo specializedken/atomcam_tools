@@ -634,3 +634,13 @@ Not yet flashed anywhere: v19 (UI iqp/gop live apply). Kitchen runs v18, garage 
   and a keeper thread re-checks both every 5 s (writes only on a difference). The UI shows "Running now" (read back from the cam). Old `GOP_*` keys are ignored (stale, harmless).
 - **v21** (`rootfs_hack.v21-gopsec.squashfs`, sha256 `463f7fdc…`, 46481408 B) = v20 + that libcallback (142472 B), `set_icamera_config.sh`, new web bundle `891e5dcc…`, `sndbuf.so` removed.
   Built, **not flashed** (the flash write was denied by the auto-mode classifier: needs the user's go for v21).
+
+## v22 on both cams, PR A opened (2026-10-15)
+
+- **Both cams run v22** (`rootfs_hack.v22-nolive.squashfs`, sha256 `57b6b612…`, built from `integration` `df2c177`): v21 minus the "Running now" UI block (the doc lives in the gop tooltips; cam-side
+  read-back is `video gop <ch>` / `video iqp <ch>`). Rollbacks on both SDs: `rootfs_hack.squashfs.bak-pre-v22-20261014` (garage = v16, kitchen = v21); kitchen also `bak-118-v20-20261014`, `bak-118-v18-20261014`.
+- Verified after reboot: kitchen booted at hack.ini state (`GOP_SEC_MAIN_HEVC=1` -> 1 s / 15 frames, min QP 25), keyframes every 1.00 s, joins clean. Garage booted clean, min QP 30 applied; capture was `off`
+  for ~1 min after boot and the watchdog healed it (01:01:00); keyframes every 1.00 s; no shim file; `wmem_max` 1 MB. Garage's old `GOP_MAIN_HEVC=30` is stale (ignored): set the interval in the UI.
+- Known leftovers: `video stats` prints the first `gap` as an unsigned underflow (4294967262 ms); a keeper thread now enforces min QP / keyframe interval every 5 s.
+- **PR A opened: [mnakada/atomcam_tools#147](https://github.com/mnakada/atomcam_tools/pull/147)** (`specializedken:pr/rtsp-robustness` -> `main`, 3 commits). `pr/encoder-knobs` (B) is not pushed; it now also carries
+  the seconds-based keyframe interval (`f52ff80`, `cb9fe8b`). Do not push other branches or open B without being asked.
