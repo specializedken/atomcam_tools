@@ -482,7 +482,7 @@ video expr manual|auto <time>
 video bitrate <ch> 10-3000(kbps)|auto
 video fps <ch> 1-30(fps)|auto
 video iqp <ch 0|1|3> [10-51|auto]
-video gop <ch 0|1|3> [1-300|auto]
+video gop <ch 0|1|3> [1-10(秒)|auto]
 video rc <ch 0|1|3> [<field> [<value>|auto]]
 video encdump <ch 0-3> attr|rc|gop [<first word>]
 video encrc <ch> [<word 0-8> <value> ...]
@@ -520,7 +520,7 @@ video bitrate, fpsはH264/H265のvbrのbitrateとフレームレート設定。
 
 video iqpは最小QP(レート制御構造体のword 3の上位16bit)の設定。全フレームの下限であり、キーフレームだけの設定ではない。アプリがビットレートやフレームレートを設定し直すたびに再適用される。
 
-video gopはキーフレーム間隔(フレーム数)の設定。アプリがフレームレートから決める値(2.5倍)を上書きする。20fpsでは読み出し値が20大きくなることがある。
+video gopはキーフレーム間隔を整数秒(1-10)で設定する。エンコーダは整数秒ごとにしかキーフレームを作らない(フレーム数がfpsの倍数でない値は、読み出し値がfps分大きくなり、ceil(値/fps)+1秒で動作する)ため、フレーム数はその時のフレームレートから計算し、フレームレートが変わる(夜間15fps/昼間20fps)たびに再計算する。アプリがフレームレートから決める値(2.5倍)を上書きする。値なしで読み出すと`user|auto <秒> s <フレーム数> frames at <fps> fps`を返す。hack.iniのキーは`GOP_SEC_MAIN_AVC` `GOP_SEC_SUB_HEVC` `GOP_SEC_MAIN_HEVC`で、エンコーダ生成時に読み込む。最小QP(`IQP_*`)も同様に生成時に読み込み、数秒おきにエンコーダの値を確認して設定値に戻す。
 
 video rcはレート制御の残りの項目の設定。項目は`initqp` `maxqp` `ipdelta` `pbdelta` `options` `maxpic`(kbit) `maxpsnr`(dB)。項目を省略すると現在値を表示し、ユーザー指定のものには`*`が付く。`ipdelta` `maxpic` `maxpsnr`などは稼働中のエンコーダには反映されず、エンコーダ作成時(`IMP_Encoder_CreateChn`のフック)に反映される。hack.iniの`<項目>_<MAIN_AVC|SUB_HEVC|MAIN_HEVC>`キーでも指定できる。レート制御構造体(9ワード、モード4と8)の意味は`tools/encbench/README.md`の「rc struct」を参照。
 

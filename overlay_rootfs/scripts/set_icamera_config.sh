@@ -32,9 +32,9 @@ BITRATE_MAIN_HEVC=$(awk -F "=" '/^BITRATE_MAIN_HEVC *=/ {print $2}' $HACK_INI)
 IQP_MAIN_AVC=$(awk -F "=" '/^IQP_MAIN_AVC *=/ {print $2}' $HACK_INI)
 IQP_SUB_HEVC=$(awk -F "=" '/^IQP_SUB_HEVC *=/ {print $2}' $HACK_INI)
 IQP_MAIN_HEVC=$(awk -F "=" '/^IQP_MAIN_HEVC *=/ {print $2}' $HACK_INI)
-GOP_MAIN_AVC=$(awk -F "=" '/^GOP_MAIN_AVC *=/ {print $2}' $HACK_INI)
-GOP_SUB_HEVC=$(awk -F "=" '/^GOP_SUB_HEVC *=/ {print $2}' $HACK_INI)
-GOP_MAIN_HEVC=$(awk -F "=" '/^GOP_MAIN_HEVC *=/ {print $2}' $HACK_INI)
+GOP_SEC_MAIN_AVC=$(awk -F "=" '/^GOP_SEC_MAIN_AVC *=/ {print $2}' $HACK_INI)
+GOP_SEC_SUB_HEVC=$(awk -F "=" '/^GOP_SEC_SUB_HEVC *=/ {print $2}' $HACK_INI)
+GOP_SEC_MAIN_HEVC=$(awk -F "=" '/^GOP_SEC_MAIN_HEVC *=/ {print $2}' $HACK_INI)
 MINIMIZE_ALARM_CYCLE=$(awk -F "=" '/^MINIMIZE_ALARM_CYCLE *=/ {print $2}' $HACK_INI)
 AWS_VIDEO_DISABLE=$(awk -F "=" '/^AWS_VIDEO_DISABLE *=/ {print $2}' $HACK_INI)
 PERIODICREC_SKIP_JPEG=$(awk -F "=" '/^PERIODICREC_SKIP_JPEG *=/ {print $2}' $HACK_INI)
@@ -57,6 +57,6 @@ fi
 [ "$IQP_MAIN_AVC" = "" ] || [ "$IQP_MAIN_AVC" -le 0 ] || /scripts/cmd video iqp 0 $IQP_MAIN_AVC > /dev/null
 [ "$IQP_SUB_HEVC" = "" ] || [ "$IQP_SUB_HEVC" -le 0 ] || /scripts/cmd video iqp 1 $IQP_SUB_HEVC > /dev/null
 [ "$IQP_MAIN_HEVC" = "" ] || [ "$IQP_MAIN_HEVC" -le 0 ] || /scripts/cmd video iqp 3 $IQP_MAIN_HEVC > /dev/null
-[ "$GOP_MAIN_AVC" = "" ] || [ "$GOP_MAIN_AVC" -le 0 ] || /scripts/cmd video gop 0 $GOP_MAIN_AVC > /dev/null
-[ "$GOP_SUB_HEVC" = "" ] || [ "$GOP_SUB_HEVC" -le 0 ] || /scripts/cmd video gop 1 $GOP_SUB_HEVC > /dev/null
-[ "$GOP_MAIN_HEVC" = "" ] || [ "$GOP_MAIN_HEVC" -le 0 ] || /scripts/cmd video gop 3 $GOP_MAIN_HEVC > /dev/null
+[ "$GOP_SEC_MAIN_AVC" = "" ] || [ "$GOP_SEC_MAIN_AVC" -le 0 ] || /scripts/cmd video gop 0 $GOP_SEC_MAIN_AVC > /dev/null
+[ "$GOP_SEC_SUB_HEVC" = "" ] || [ "$GOP_SEC_SUB_HEVC" -le 0 ] || /scripts/cmd video gop 1 $GOP_SEC_SUB_HEVC > /dev/null
+[ "$GOP_SEC_MAIN_HEVC" = "" ] || [ "$GOP_SEC_MAIN_HEVC" -le 0 ] || /scripts/cmd video gop 3 $GOP_SEC_MAIN_HEVC > /dev/null

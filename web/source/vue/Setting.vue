@@ -347,20 +347,25 @@
           <h3 v-t="'videoSpec.title'" />
           <SettingInputNumber i18n="videoSpec.frameRate" :withSwitch="true" :defaultValue="20" :span="3" v-model="config.FRAMERATE" :min="1" :max="30" />
           <SettingComment i18n="videoSpec.note" />
+          <SettingComment v-if="liveVideo.length" i18n="videoSpec.live">
+            <div v-for="line in liveVideo" :key="line">
+              {{ line }}
+            </div>
+          </SettingComment>
           <h3 v-t="'videoSpec.mainAVC.title'" />
           <SettingInputNumber i18n="videoSpec.mainAVC.bitrate" :withSwitch="true" :span="3" v-model="config.BITRATE_MAIN_AVC" :min="300" :max="2000" />
           <SettingInputNumber i18n="videoSpec.mainAVC.iqp" :withSwitch="true" :span="3" v-model="config.IQP_MAIN_AVC" :min="20" :max="45" />
-          <SettingInputNumber i18n="videoSpec.mainAVC.gop" :withSwitch="true" :span="3" v-model="config.GOP_MAIN_AVC" :min="5" :max="120" />
+          <SettingInputNumber i18n="videoSpec.mainAVC.gop" :withSwitch="true" :span="3" v-model="config.GOP_SEC_MAIN_AVC" :min="1" :max="10" />
           <template v-if="distributor === 'ATOM'">
             <h3 v-t="'videoSpec.mainHEVC.title'" />
             <SettingInputNumber i18n="videoSpec.mainHEVC.bitrate" :withSwitch="true" :span="3" v-model="config.BITRATE_MAIN_HEVC" :min="300" :max="2000" />
             <SettingInputNumber i18n="videoSpec.mainHEVC.iqp" :withSwitch="true" :span="3" v-model="config.IQP_MAIN_HEVC" :min="20" :max="45" />
-            <SettingInputNumber i18n="videoSpec.mainHEVC.gop" :withSwitch="true" :span="3" v-model="config.GOP_MAIN_HEVC" :min="5" :max="120" />
+            <SettingInputNumber i18n="videoSpec.mainHEVC.gop" :withSwitch="true" :span="3" v-model="config.GOP_SEC_MAIN_HEVC" :min="1" :max="10" />
           </template>
           <h3 v-t="'videoSpec.sub.title'" />
           <SettingInputNumber i18n="videoSpec.sub.bitrate" :withSwitch="true" :span="3" v-model="config.BITRATE_SUB_HEVC" :min="100" :max="500" />
           <SettingInputNumber i18n="videoSpec.sub.iqp" :withSwitch="true" :span="3" v-model="config.IQP_SUB_HEVC" :min="20" :max="45" />
-          <SettingInputNumber i18n="videoSpec.sub.gop" :withSwitch="true" :span="3" v-model="config.GOP_SUB_HEVC" :min="5" :max="120" />
+          <SettingInputNumber i18n="videoSpec.sub.gop" :withSwitch="true" :span="3" v-model="config.GOP_SEC_SUB_HEVC" :min="1" :max="10" />
           <h3 v-t="'watermark.title'" />
           <SettingComment i18n="watermark.image">
             <div class="watermark-drop-area" :class="[{'is-drag': isDrag }]" @dragover.prevent="isDrag=true" @dragleave.prevent="isDrag=false" @drop.prevent="UploadPNG">
@@ -454,6 +459,7 @@
     },
     data() {
       return {
+        liveVideo: [],
         config: {
           CONFIG_VER: '1.0.1',
           appver: '', // ATOMCam app_ver (/atom/config/app.ver)
@@ -553,9 +559,9 @@
           IQP_MAIN_AVC: 32,        // min QP, ch0 (app default 23)
           IQP_SUB_HEVC: -32,       // min QP, ch1 (app default 23, untested)
           IQP_MAIN_HEVC: 30,       // min QP, ch3 (app default 32)
-          GOP_MAIN_AVC: 15,        // keyframe interval in frames (the app uses the frame rate = 1 s)
-          GOP_SUB_HEVC: -15,
-          GOP_MAIN_HEVC: 30,
+          GOP_SEC_MAIN_AVC: 1,     // keyframe interval in whole seconds (the cam derives the frame count from its frame rate)
+          GOP_SEC_SUB_HEVC: -1,
+          GOP_SEC_MAIN_HEVC: 2,
         },
         property: {},
         ISPSettings: {
@@ -947,6 +953,7 @@
         }
       }, 1000);
       this.StillImageInterval();
+      this.LoadLiveVideo();
       this.CheckHomeKit();
       window.addEventListener('resize', this.ResizeEvent.bind(this));
     },
@@ -1433,7 +1440,7 @@
           execCmds.push(`bitrate 3 ${this.config.BITRATE_MAIN_HEVC < 0 ? 'auto' : this.config.BITRATE_MAIN_HEVC}`);
         }
         [['IQP_MAIN_AVC', 'iqp 0'], ['IQP_SUB_HEVC', 'iqp 1'], ['IQP_MAIN_HEVC', 'iqp 3'],
-         ['GOP_MAIN_AVC', 'gop 0'], ['GOP_SUB_HEVC', 'gop 1'], ['GOP_MAIN_HEVC', 'gop 3']].forEach(([key, cmd]) => {
+         ['GOP_SEC_MAIN_AVC', 'gop 0'], ['GOP_SEC_SUB_HEVC', 'gop 1'], ['GOP_SEC_MAIN_HEVC', 'gop 3']].forEach(([key, cmd]) => {
           if(parseInt(this.config[key]) !== parseInt(this.oldConfig[key])) {
             execCmds.push(`${cmd} ${this.config[key] < 0 ? 'auto' : this.config[key]}`);
           }
@@ -1518,6 +1525,10 @@
             for(const cmd of execCmds) {
               await this.Exec(cmd);
             }
+            if(execCmds.some(cmd => /^(framerate|bitrate|iqp|gop) /.test(cmd))) {
+              await new Promise(resolve => setTimeout(resolve, 1500));
+              await this.LoadLiveVideo();
+            }
             if(this.progress < 0) {
               if(execCmds.indexOf('lighttpd') >= 0) {
                 setTimeout(() => this.drawerVisible = false, 3000);
@@ -1529,6 +1540,24 @@
           });
         }
         this.CheckHomeKit();
+      },
+      // What the encoders are really running (read from the cam), as opposed to what the fields below hold.
+      async LoadLiveVideo() {
+        const ask = async cmd => String((await this.Exec(cmd, 'socket'))?.data ?? '').replace(/\0/g, '').trim();
+        const lines = [];
+        const streams = [[0, 'videoSpec.mainAVC.title']];
+        if(this.distributor === 'ATOM') streams.push([3, 'videoSpec.mainHEVC.title']);
+        streams.push([1, 'videoSpec.sub.title']);
+        for(const [ch, title] of streams) {
+          const qp = (await ask(`video iqp ${ch}`)).match(/^(user|auto) (\d+)/);
+          const gop = (await ask(`video gop ${ch}`)).match(/^(user|auto) (\d+) s (\d+) frames at (\d+) fps/);
+          if(!qp || !gop) continue;
+          lines.push(this.$t('videoSpec.liveLine', {
+            name: this.$t(title), qp: qp[2], qpMode: this.$t(`videoSpec.${qp[1]}`),
+            sec: gop[2], frames: gop[3], fps: gop[4], gopMode: this.$t(`videoSpec.${gop[1]}`),
+          }));
+        }
+        this.liveVideo = lines;
       },
       async Exec(cmd, port) {
         return await axios.post(`./cgi-bin/cmd.cgi?port=${port}`, { exec: cmd }).catch(err => {
