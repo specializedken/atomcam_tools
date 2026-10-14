@@ -191,7 +191,7 @@ static struct CommandTableSt VideoCommandTable[] = {
   { "streambuf", &StreamBuf }, // streambuf <imp ch 0-2> [<kB>|auto]  encoder stream buffer, applied when the channel is (re)created
   { "streamcnt", &StreamCnt }, // streamcnt <imp ch 0-2> [<n>|auto]
   { "stats",     &Stats }, // stats [reset]   frames / largest frame / callback time / stalls per channel
-  { "iqp",       &Iqp }, // iqp <ch 0|1|3> [<min QP 10-51>|auto]   (the floor of every frame; see "rc struct" in tools/encbench/README.md)
+  { "iqp",       &Iqp }, // iqp <ch 0|1|3> [<min QP 10-51>|auto]   (the floor of every frame; see "rc struct" in libcallback_hook.md)
   { "gop",       &Gop }, // gop <ch 0|1|3> [<keyframe interval in seconds 1-10>|auto]
   { "rc",        &Rc }, // rc <ch 0|1|3> [<field> [<value>|auto]]   initqp maxqp ipdelta pbdelta options maxpic maxpsnr
 };
@@ -274,7 +274,7 @@ static int sdk_channel(int impCh) {
 
 // The remaining fields of the rate control struct. In the capped modes (4 and 8; the app uses 8) libimp's
 // IMP_Encoder_SetChnAttrRcMode copies the 9 words into the encoder's own parameters (decoded from libimp.so, see
-// tools/encbench/README.md "rc struct"): w1/w2 target/max kbps, w3 low = initial QP (-1 auto), w3 high = MIN QP (the
+// libcallback_hook.md "rc struct"): w1/w2 target/max kbps, w3 low = initial QP (-1 auto), w3 high = MIN QP (the
 // what "video iqp" sets), w4 low = max QP, w4 high = I/P QP delta (-1 auto), w5 low = P/B QP delta (-1 auto),
 // w6 = rate control options, w7 = largest picture in kbit (x1000 bits), w8 low = max PSNR in dB (x100).
 // Measured: max picture, max PSNR and IP delta have NO effect when changed on a running channel, so they are applied
@@ -341,7 +341,7 @@ static void apply_rc(int ch) {
 }
 
 // "iqp" is the high 16 bits of word 3 of the rate control struct. libimp hands it to the encoder as the MIN QP of the
-// capped modes (the floor of every frame, I and P; see "rc struct" in tools/encbench/README.md). It is NOT a keyframe QP.
+// capped modes (the floor of every frame, I and P; see "rc struct" in libcallback_hook.md). It is NOT a keyframe QP.
 // Frame rate the encoder channel is running at (rounded), the app's last value if it cannot be read.
 static int encoder_fps(int impCh) {
 
