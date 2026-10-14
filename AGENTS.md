@@ -617,3 +617,20 @@ Not yet flashed anywhere: v19 (UI iqp/gop live apply). Kitchen runs v18, garage 
 - The largest frame the encoder will emit is bounded by the max picture size (1920 kbit = 240 kB); measured peaks 170-222 kB. So there is ~4x headroom; the 17 kB peak send queue seen in 100 samples (one client) is a floor, not a peak, because a keyframe burst drains in milliseconds.
 - Costs of going higher: RAM is the scarce resource (MemFree ~5 MB, 32 MB cache) and a stalled client (Wi-Fi drop) can pin up to the full buffer per connection; at 2 Mbps a 1 MB queue is 4 s of stale video.
 - If anything, the request could go DOWN (256 KB request = 512 KB effective, still >2x the largest keyframe) to leave RAM headroom; no evidence of a need, so left as is.
+
+---
+
+# v20 / v21 and the keyframe interval (2026-10-14)
+
+- **v20** (`rootfs_hack.v20-integration.squashfs`, sha256 `5a127a5a…`) = built from `integration`: no `sndbuf.so` preload, no loopback tweak. Flashed on **kitchen** (rollback
+  `rootfs_hack.squashfs.bak-118-v18-20261014`), verified: boots in ~1 min, `video rc` min QP 25 applied, 3 clean joins, wmem_max 1 MB. Staged (not rebooted) on **garage**
+  (rollback `bak-118-v16-20261014`).
+- **GOP findings (kitchen, 15 fps, ffprobe keyframe pts over 22 s):** the encoder makes keyframes only at whole seconds.
+  set 15/30/45/60 -> read-back identical, 1/2/3/4 s. Non-multiples: 20 -> reads 35 -> **3 s**; 25 -> 39 -> **3 s**; 40 -> 55 -> **4 s** (ceil(len/fps) + 1 s; the read-back is len + ~fps).
+  So "GOP 40" in the old UI meant 4 s at night, and the read-back (+20 at 20 fps) was this same rule. Upstream's own note says the GOP must be divisible by the fps.
+  Boot: kitchen came up with 30 although hack.ini said 40 (cause not proven; the `video gop` from `set_icamera_config.sh` ran, but something later left 30).
+- **Fix (`f52ff80` on `pr/encoder-knobs`, merged into `integration`):** the setting is seconds (`video gop <ch> 1-10|auto`, hack.ini `GOP_SEC_MAIN_AVC|SUB_HEVC|MAIN_HEVC`, UI 1-10 s);
+  the frame count is `seconds * live encoder fps` on every apply (so the 15/20 fps flip stays exact). `IQP_*` and `GOP_SEC_*` are also read from hack.ini in the `CreateChn` hook,
+  and a keeper thread re-checks both every 5 s (writes only on a difference). The UI shows "Running now" (read back from the cam). Old `GOP_*` keys are ignored (stale, harmless).
+- **v21** (`rootfs_hack.v21-gopsec.squashfs`, sha256 `463f7fdc…`, 46481408 B) = v20 + that libcallback (142472 B), `set_icamera_config.sh`, new web bundle `891e5dcc…`, `sndbuf.so` removed.
+  Built, **not flashed** (the flash write was denied by the auto-mode classifier: needs the user's go for v21).
