@@ -660,3 +660,7 @@ Image needs the new `libcallback.so` (#164), `S42ntpd`, `S20mountfs`, `scripts/s
 **v7 image built 2026-10-25, not flashed:** `vendor-fw/work/on118/rootfs_hack.v7-heronshoes.squashfs`, sha256 `a78e8374…d156f`, 46481408 B (bytes_used check ok).
 = v22 + `libcallback.so` rebuilt from `heronshoes-picks` (142632 B stripped; v22's was 142472) + `S42ntpd`, `S20mountfs`, `scripts/set_crontab.sh`. `diff -r` against v22 shows only those files
 (the code delta v22 -> branch is these picks plus comment-only edits). Library built in the builder image with `make` + the cross `strip` (unstripped it is 158916 B; v22's was stripped).
+
+**Garage runs v7 since 2026-10-25 23:30** (flashed by the user's hand after the classifier blocked the ssh write; rollback `rootfs_hack.squashfs.bak-pre-v7-20261025` = v22 on its SD).
+Checked after boot: ntpd synced at uptime 30 s (try 1), 0 zombies after 2 min, RTSP up, ptzstatus ok, Frigate quiet. Not yet seen: `/tmp/log/logrotate.status` (first cron run at :45), a measured #164 vmalloc saving
+(`VmallocUsed` 7908 kB with the streams up), a real autotrack. **Kitchen stays on v22 until garage has run for a while (user's call, 2026-10-25).**
