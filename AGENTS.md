@@ -656,3 +656,7 @@ Taken: #164 (v4l2loopback buffers 16.6 MB -> ~1 MB per 1080p stream, `libcallbac
 #154 (re-copy `atom_root.squashfs` by md5, not size), #158 (ntpd waits for the network at boot + cron watchdog; blocks boot up to ~30 s, check on a cam first).
 Skipped: #150 (webhook zombie, we use no webhook), #152 (timelapse sample), #156 (midnight-crossing recording schedules, we do not record to SD), #162 (`make test-device` suite, 1379 lines; handy for post-flash checks if ever wanted).
 Image needs the new `libcallback.so` (#164), `S42ntpd`, `S20mountfs`, `scripts/set_crontab.sh`. Flash only with the user's go.
+
+**v7 image built 2026-10-25, not flashed:** `vendor-fw/work/on118/rootfs_hack.v7-heronshoes.squashfs`, sha256 `a78e8374…d156f`, 46481408 B (bytes_used check ok).
+= v22 + `libcallback.so` rebuilt from `heronshoes-picks` (142632 B stripped; v22's was 142472) + `S42ntpd`, `S20mountfs`, `scripts/set_crontab.sh`. `diff -r` against v22 shows only those files
+(the code delta v22 -> branch is these picks plus comment-only edits). Library built in the builder image with `make` + the cross `strip` (unstripped it is 158916 B; v22's was stripped).
