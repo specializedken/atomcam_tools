@@ -648,3 +648,11 @@ Not yet flashed anywhere: v19 (UI iqp/gop live apply). Kitchen runs v18, garage 
   README/hook docs no longer point at `tools/encbench`). Offered in the body to drop `encdump|encrc|encgop` if the maintainer prefers.
 - **PR B (#148) was closed by the user's request right after opening (opened by mistake).** Only A (#147) is meant to be upstream for now. `pr/encoder-knobs` still exists on origin; do not reopen or
   re-push B unless explicitly asked.
+
+# Picks from heronshoes' upstream PRs (2026-10-25)
+
+Branch `heronshoes-picks` = `integration` + 6 cherry-picks (authorship kept, applied clean, `busybox sh -n` ok). **Not built, not flashed, not pushed.**
+Taken: #164 (v4l2loopback buffers 16.6 MB -> ~1 MB per 1080p stream, `libcallback/video_callback.c`; matters with ~3.8 MB free RAM), #160 (logrotate state file on `/tmp/log`),
+#154 (re-copy `atom_root.squashfs` by md5, not size), #158 (ntpd waits for the network at boot + cron watchdog; blocks boot up to ~30 s, check on a cam first).
+Skipped: #150 (webhook zombie, we use no webhook), #152 (timelapse sample), #156 (midnight-crossing recording schedules, we do not record to SD), #162 (`make test-device` suite, 1379 lines; handy for post-flash checks if ever wanted).
+Image needs the new `libcallback.so` (#164), `S42ntpd`, `S20mountfs`, `scripts/set_crontab.sh`. Flash only with the user's go.
