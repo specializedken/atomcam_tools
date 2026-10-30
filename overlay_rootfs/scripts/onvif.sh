@@ -99,6 +99,10 @@ fi
 ONVIF_USER=$(get_ini ONVIF_USER)
 ONVIF_PASSWD=$(get_ini ONVIF_PASSWD)
 ONVIF_MAIN_STREAM=$(get_ini ONVIF_MAIN_STREAM)
+ONVIF_SETTLE_MS=$(get_ini ONVIF_SETTLE_MS)
+case "$ONVIF_SETTLE_MS" in
+  ''|*[!0-9]*) ONVIF_SETTLE_MS=0 ;;
+esac
 [ "$ONVIF_MAIN_STREAM" = "" ] && ONVIF_MAIN_STREAM=avc
 
 audio_encoder()
@@ -183,8 +187,9 @@ fi
     echo "min_step_z=0"
     echo "max_step_z=0"
     # GetStatus is polled in a tight loop: talk to the command socket directly (one nc, no shell script)
-    # and get "pan,tilt,0,moving" in a single line, so is_moving only has to exist (it advertises MoveStatus)
-    echo "get_position=echo ptzstatus | /usr/bin/nc localhost 4000"
+    # and get "pan,tilt,0,moving" in a single line, so is_moving only has to exist (it advertises MoveStatus).
+    # ONVIF_SETTLE_MS keeps MoveStatus at MOVING that long after a stop, to cover the video latency
+    echo "get_position=echo ptzstatus $ONVIF_SETTLE_MS | /usr/bin/nc localhost 4000"
     echo "is_moving=/scripts/onvif_ptz.sh is_moving"
     echo "move_left=/scripts/onvif_ptz.sh move_left %f > /dev/null"
     echo "move_right=/scripts/onvif_ptz.sh move_right %f > /dev/null"

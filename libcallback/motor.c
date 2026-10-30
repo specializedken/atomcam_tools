@@ -229,11 +229,18 @@ char *MotorContStop(int fd, char *tokenPtr) {
   return "ok";
 }
 
-// ptzstatus : "<pan>,<tilt>,0,<moving>" in one line (rounded, flip corrected like move), meant for the ONVIF
+// ptzstatus [settle_ms] : "<pan>,<tilt>,0,<moving>" in one line (rounded, flip corrected like move), meant for the ONVIF
 // GetStatus hook so it costs one socket round trip. moving covers every mover: move, relmove, contmove.
+// settle_ms keeps moving at 1 for that long after the head stopped: a client that judges the next move from the
+// video (Frigate) otherwise sees frames shot before the stop, because the stream lags the motor (~0.85 s measured).
 char *MotorPtzStatus(int fd, char *tokenPtr) {
 
   if(!swing) return "error";
+
+  char *p = strtok_r(NULL, " \t\r\n", &tokenPtr);
+  int settle = p ? atoi(p) : 0;
+  if(settle < 0) settle = 0;
+  if(settle > 5000) settle = 5000;
 
   int vflip, hflip;
   IMP_ISP_Tuning_GetISPHflip(&hflip);
@@ -253,8 +260,20 @@ char *MotorPtzStatus(int fd, char *tokenPtr) {
       ContMoving = 0;
     }
   }
+  int moving = (MotorFd >= 0 || ContMoving) ? 1 : 0;
+  if(!moving && settle) {
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    long sec = now.tv_sec - MotorLastMovedTime.tv_sec;
+    // seconds first: long is 32 bit here and the time is 0 until the first move. A negative value means the
+    // clock was stepped (ntpd): no tail then
+    if((sec >= 0) && (sec <= 10)) {
+      long since = sec * 1000 + (now.tv_usec - MotorLastMovedTime.tv_usec) / 1000;
+      if((since >= 0) && (since < settle)) moving = 1;
+    }
+  }
   if(hflip) pan = 355.0 - pan;
   if(vflip) tilt = 180.0 - tilt;
-  sprintf(CommandResBuf, "%d,%d,0,%d\n", (int)(pan + 0.5), (int)(tilt + 0.5), (MotorFd >= 0 || ContMoving) ? 1 : 0);
+  sprintf(CommandResBuf, "%d,%d,0,%d\n", (int)(pan + 0.5), (int)(tilt + 0.5), moving);
   return CommandResBuf;
 }

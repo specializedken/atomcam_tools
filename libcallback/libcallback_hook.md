@@ -281,12 +281,12 @@ moveと同様に移動中は次のコマンドはエラーになり(優先度が
 ```
 contmove <h 0-2> <v 0-2> [<speed 1-9:default 9>] [<priority 0-3:default 2>]
 contstop
-ptzstatus
+ptzstatus [<settle_ms 0-5000:default 0>]
 ```
 
 AtomCamSwingでpan/tiltを止めるまで動かし続ける(SDKの`local_sdk_motor_move`/`local_sdk_motor_stop`)。h, vはSDKの生の方向コマンドで、0は動かさない、1と2は互いに逆向き。どちらがどの向きかは設置(flip)で変わる。すぐに`ok`を返す。
 
-`ptzstatus`は`pan,tilt,0,moving`を1行で返す(整数に丸め、flipは`move`と同様に補正)。movingは`move`/`relmove`/`contmove`のどれかが動作中なら1。ONVIFのGetStatus用。
+`ptzstatus`は`pan,tilt,0,moving`を1行で返す(整数に丸め、flipは`move`と同様に補正)。movingは`move`/`relmove`/`contmove`のどれかが動作中なら1。ONVIFのGetStatus用。settle_msを指定すると、停止後その時間だけmovingを1のままにする(映像の遅延分、クライアントに停止後の映像を待たせるため)。
 
 
 
