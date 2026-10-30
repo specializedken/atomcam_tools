@@ -664,3 +664,18 @@ Image needs the new `libcallback.so` (#164), `S42ntpd`, `S20mountfs`, `scripts/s
 **Garage runs v7 since 2026-10-25 23:30** (flashed by the user's hand after the classifier blocked the ssh write; rollback `rootfs_hack.squashfs.bak-pre-v7-20261025` = v22 on its SD).
 Checked after boot: ntpd synced at uptime 30 s (try 1), 0 zombies after 2 min, RTSP up, ptzstatus ok, Frigate quiet. Not yet seen: `/tmp/log/logrotate.status` (first cron run at :45), a measured #164 vmalloc saving
 (`VmallocUsed` 7908 kB with the streams up), a real autotrack. **Kitchen stays on v22 until garage has run for a while (user's call, 2026-10-25).**
+
+# Autotrack overshoot = stale frames; cam-side settle tail (2026-10-29)
+
+- Garage event 07:20 UTC: Frigate's first RelativeMove centred the person, then ~0.15 s later it sent the SAME move again -> person on the far edge, ping-pong, 15 fragmented events.
+- Cause: Frigate sets `stop_time = frame_time` (arrival-time stamps, `use_wallclock_as_timestamps`) on the first IDLE GetStatus and only gates moves on `frame_time > stop_time`.
+  Detect frames lag the cam by **~0.8-0.9 s** (measured: cam OSD clock vs `latest.jpg` fetch time, 12 s), so frames shot before/during the move pass the gate. Frigate-side design flaw, unchanged in `dev`;
+  no issue/PR/discussion found (their docs blame overshoot on calibration). GH Discussion to write later.
+- Workaround: `ptzstatus [settle_ms]` keeps moving=1 that long after the head stops (`libcallback/motor.c`); `onvif.sh` passes hack.ini `ONVIF_SETTLE_MS` (default 0 = off) in the get_position hook.
+  Script uses of `ptzstatus` (run_move, contmove watchdog) pass no arg, so they are unaffected. Host stub test: 7/7 cases.
+- **v23** `vendor-fw/work/on118/rootfs_hack.v23-settle.squashfs`, sha256 `7d94bb09…c1dc`, = v7-heronshoes + `libcallback.so` (143080 B) + `scripts/onvif.sh`.
+  **Garage runs v23 since 2026-10-29 17:01 JST** with `ONVIF_SETTLE_MS=1000` (rollback `rootfs_hack.squashfs.bak-pre-v23-20261029` = v7, `hack.ini.bak-settle-20261029`). Verified over ONVIF (autotracker paused):
+  +-5 deg RelativeMove returns in 0.21 s, MoveStatus stays MOVING ~0.95-0.98 s after it (16-17 GetStatus polls), then IDLE; back exactly at 143/74. Kitchen stays on v22.
+  **Real walk-bys OK (2026-10-30):** 16:58 JST walk = one 120 s event (was 15 fragments in 8 min on 10-29), person enters at x 0.03, first move lands at 0.58 with no second move, then x stays 0.46-0.66; 9 moves in 131 s, shortest gap between moves 1.9 s (frame-diff, `moves.py`, scratch), no double moves.
+  libcallback recipe reproduces v7's file byte-identical from unmodified source (uclibc gcc, `-DV4L2_PIX_FMT_HEVC=0x43564548`, tinyalsa `1c5fb68` include, `-L<rootfs>/lib/modules -ldl -l:libtinyalsa.so.2 -lm`, cross strip).
+- Keep `calibrate_on_startup: false`: a recalibration would fold the tail into `movement_weights`.
