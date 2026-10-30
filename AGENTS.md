@@ -675,7 +675,8 @@ Checked after boot: ntpd synced at uptime 30 s (try 1), 0 zombies after 2 min, R
   Script uses of `ptzstatus` (run_move, contmove watchdog) pass no arg, so they are unaffected. Host stub test: 7/7 cases.
 - **v23** `vendor-fw/work/on118/rootfs_hack.v23-settle.squashfs`, sha256 `7d94bb09…c1dc`, = v7-heronshoes + `libcallback.so` (143080 B) + `scripts/onvif.sh`.
   **Garage runs v23 since 2026-10-29 17:01 JST** with `ONVIF_SETTLE_MS=1000` (rollback `rootfs_hack.squashfs.bak-pre-v23-20261029` = v7, `hack.ini.bak-settle-20261029`). Verified over ONVIF (autotracker paused):
-  +-5 deg RelativeMove returns in 0.21 s, MoveStatus stays MOVING ~0.95-0.98 s after it (16-17 GetStatus polls), then IDLE; back exactly at 143/74. Kitchen stays on v22.
+  +-5 deg RelativeMove returns in 0.21 s, MoveStatus stays MOVING ~0.95-0.98 s after it (16-17 GetStatus polls), then IDLE; back exactly at 143/74.
+  **Kitchen runs v23 since 2026-10-30 18:08 JST** with `ONVIF_SETTLE_MS=1000` (rollback `rootfs_hack.squashfs.bak-pre-v23-20261030` = v22, `hack.ini.bak-settle-20261030`); same ONVIF check OK (MOVING ~0.96 s after the move, back at 164/83). No real walk-by checked on kitchen yet. It idles at 164/83, not at its `home` preset 163.5/77 (cause not looked at).
   **Real walk-bys OK (2026-10-30):** 16:58 JST walk = one 120 s event (was 15 fragments in 8 min on 10-29), person enters at x 0.03, first move lands at 0.58 with no second move, then x stays 0.46-0.66; 9 moves in 131 s, shortest gap between moves 1.9 s (frame-diff, `moves.py`, scratch), no double moves.
   libcallback recipe reproduces v7's file byte-identical from unmodified source (uclibc gcc, `-DV4L2_PIX_FMT_HEVC=0x43564548`, tinyalsa `1c5fb68` include, `-L<rootfs>/lib/modules -ldl -l:libtinyalsa.so.2 -lm`, cross strip).
 - Keep `calibrate_on_startup: false`: a recalibration would fold the tail into `movement_weights`.
